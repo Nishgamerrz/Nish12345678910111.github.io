@@ -338,6 +338,24 @@
   const LS_MODEL = "gemini_model";
   const LS_MODELS = "gemini_models_v1";
 
+  /* localStorage throws in sandboxed iframes / with storage disabled.
+     Fall back to memory so the app still runs instead of dying at boot. */
+  const store = (function () {
+    try {
+      const probe = "__gemini_probe__";
+      localStorage.setItem(probe, "1");
+      localStorage.removeItem(probe);
+      return localStorage;
+    } catch (e) {
+      const mem = Object.create(null);
+      return {
+        getItem: function (k) { return k in mem ? mem[k] : null; },
+        setItem: function (k, v) { mem[k] = String(v); },
+        removeItem: function (k) { delete mem[k]; },
+      };
+    }
+  })();
+
   const $ = (id) => document.getElementById(id);
   const logEl = $("log"), emptyEl = $("empty"), promptEl = $("prompt");
   const sendBtn = $("send"), stopBtn = $("stop"), modelSel = $("model"), refreshBtn = $("btn-refresh");
@@ -350,10 +368,10 @@
   let history = [];                                  // [{role, parts}] sent to the API
 
   /* ----------------------------- key ------------------------------- */
-  const getKey = () => (localStorage.getItem(LS_KEY) || "").trim();
+  const getKey = () => (store.getItem(LS_KEY) || "").trim();
   function setKey(v) {
     v = (v || "").trim();
-    if (v) localStorage.setItem(LS_KEY, v); else localStorage.removeItem(LS_KEY);
+    if (v) store.setItem(LS_KEY, v); else store.removeItem(LS_KEY);
     paintKeyState();
     if (v) discoverModels();
   }
@@ -385,7 +403,7 @@
   const looksUnsupported = /tts|live|transcribe|embedding|embed|aqa|image|nano-banana|vision|robotics|omni|computer-use|veo|imagen|music|lyria|gemma|translate/i;
 
   function fillModelSelect(textModels) {
-    const current = modelSel.value || localStorage.getItem(LS_MODEL) || TEXT_FALLBACKS[0];
+    const current = modelSel.value || store.getItem(LS_MODEL) || TEXT_FALLBACKS[0];
     modelSel.innerHTML = "";
     const list = (textModels && textModels.length) ? textModels : TEXT_FALLBACKS;
     list.forEach((id) => {
@@ -427,7 +445,7 @@
         statusEl.textContent = textModels.length + " models available";
       }
       try {
-        localStorage.setItem(LS_MODELS, JSON.stringify({ text: textModels, image: imageModels, at: Date.now() }));
+        store.setItem(LS_MODELS, JSON.stringify({ text: textModels, image: imageModels, at: Date.now() }));
       } catch (e) { /* ignore */ }
       // Curated newest-first order first, then any image model Google has added since.
       if (imageModels.length) imageChain = IMAGE_FALLBACKS.concat(imageModels);
@@ -438,13 +456,13 @@
 
   function cachedModels() {
     try {
-      const c = JSON.parse(localStorage.getItem(LS_MODELS) || "null");
+      const c = JSON.parse(store.getItem(LS_MODELS) || "null");
       if (c && c.text && c.text.length) return c;
     } catch (e) { /* ignore */ }
     return null;
   }
 
-  refreshBtn.onclick = () => { localStorage.removeItem(LS_MODELS); discoverModels(); };
+  refreshBtn.onclick = () => { store.removeItem(LS_MODELS); discoverModels(); };
 
   /* --------------------------- rendering --------------------------- */
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -860,7 +878,7 @@
     c.onclick = () => { promptEl.value = c.textContent; autoGrow(); send(); };
   });
 
-  modelSel.onchange = () => { localStorage.setItem(LS_MODEL, modelSel.value); statusEl.textContent = "Model: " + modelSel.value; };
+  modelSel.onchange = () => { store.setItem(LS_MODEL, modelSel.value); statusEl.textContent = "Model: " + modelSel.value; };
 
   $("btn-clear").onclick = () => {
     if (!confirm("Clear this conversation?")) return;
@@ -880,13 +898,13 @@
         if (!b || b.querySelector("img")) return;          // images are too big for localStorage
         turns.push({ role: m.classList.contains("user") ? "user" : "model", raw: b._raw || "" });
       });
-      localStorage.setItem(LS_CHAT, JSON.stringify({ history: history.slice(-40), turns: turns.slice(-40) }));
+      store.setItem(LS_CHAT, JSON.stringify({ history: history.slice(-40), turns: turns.slice(-40) }));
     } catch (e) { /* quota — ignore */ }
   }
 
   function loadChat() {
     let saved;
-    try { saved = JSON.parse(localStorage.getItem(LS_CHAT) || "null"); } catch (e) { return; }
+    try { saved = JSON.parse(store.getItem(LS_CHAT) || "null"); } catch (e) { return; }
     if (!saved || !saved.turns || !saved.turns.length) return;
     history = saved.history || [];
     document.querySelectorAll(".empty").forEach((n) => n.remove());
@@ -901,7 +919,7 @@
   /* ------------------------------ boot ----------------------------- */
   const cached = cachedModels();
   fillModelSelect(cached ? cached.text : null);
-  const savedModel = localStorage.getItem(LS_MODEL);
+  const savedModel = store.getItem(LS_MODEL);
   if (savedModel) {
     if (!Array.prototype.some.call(modelSel.options, (o) => o.value === savedModel)) {
       const o = document.createElement("option");
