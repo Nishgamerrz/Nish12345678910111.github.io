@@ -53,6 +53,7 @@
   select {
     background: var(--panel); border: 1px solid var(--border); color: var(--text);
     border-radius: 10px; padding: 7px 10px; outline: none; cursor: pointer;
+    max-width: 210px;
   }
   select:focus, input:focus, textarea:focus { border-color: var(--accent); }
   .btn {
@@ -116,24 +117,20 @@
     margin: 9px 0; padding: 2px 0 2px 12px;
     border-left: 3px solid var(--border); color: var(--muted);
   }
-  .bubble table { border-collapse: collapse; margin: 9px 0; width: 100%; font-size: .93em; }
-  .bubble th, .bubble td { border: 1px solid var(--border); padding: 6px 9px; text-align: left; }
-  .bubble th { background: var(--panel-2); }
   .bubble img.gen {
     max-width: 100%; border-radius: 12px; border: 1px solid var(--border);
     display: block; margin-top: 4px; background: #000;
   }
-  .toolbar { display: flex; gap: 7px; margin-top: 7px; opacity: 0; transition: .15s; }
+  .toolbar { display: flex; gap: 7px; margin-top: 7px; opacity: 0; transition: .15s; flex-wrap: wrap; }
   .msg:hover .toolbar, .toolbar.always { opacity: 1; }
   .toolbar button {
     background: transparent; border: 1px solid var(--border); color: var(--muted);
     border-radius: 8px; padding: 3px 9px; font-size: 12px; cursor: pointer;
   }
   .toolbar button:hover { color: var(--text); border-color: #39415a; }
-  .meta { font-size: 11.5px; color: #6f7893; margin-top: 6px; }
 
   .cursor::after {
-    content: "▌"; color: var(--accent); animation: blink 1s steps(2, start) infinite;
+    content: "\258C"; color: var(--accent); animation: blink 1s steps(2, start) infinite;
     margin-left: 1px;
   }
   @keyframes blink { to { visibility: hidden; } }
@@ -146,6 +143,11 @@
   .err pre {
     margin: 8px 0 0; background: #14090b; border: 1px solid rgba(255,107,107,.25);
     border-radius: 8px; padding: 9px 11px; overflow-x: auto; font-size: .84em; color: #ffb4b4;
+    white-space: pre-wrap;
+  }
+  .note-box {
+    background: rgba(139,123,255,.08); border: 1px solid rgba(139,123,255,.35);
+    border-radius: var(--radius); padding: 10px 13px; font-size: 13.5px; color: #d7d2ff;
   }
 
   /* ---------- composer ---------- */
@@ -167,7 +169,7 @@
     max-height: 190px; min-height: 26px; padding: 4px 2px; line-height: 1.5;
   }
   #prompt::placeholder { color: #6f7893; }
-  .composer .actions { display: flex; gap: 7px; align-items: center; }
+  .composer .actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
   .mode {
     display: inline-flex; background: var(--bg-2); border: 1px solid var(--border);
     border-radius: 9px; padding: 2px; gap: 2px;
@@ -186,7 +188,7 @@
   }
   .overlay[hidden] { display: none; }
   .card {
-    width: 100%; max-width: 460px; background: var(--panel);
+    width: 100%; max-width: 470px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 18px; padding: 22px;
     box-shadow: 0 24px 70px rgba(0,0,0,.6);
   }
@@ -207,10 +209,6 @@
   .row .btn { flex: 1; justify-content: center; text-align: center; }
   .note { font-size: 12px; color: #6f7893; margin-top: 14px; line-height: 1.5; }
   .note a { color: var(--accent-2); }
-  .badge {
-    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 99px;
-    background: rgba(55,213,200,.12); color: var(--accent-2); border: 1px solid rgba(55,213,200,.3);
-  }
 
   /* ---------- empty state ---------- */
   .empty { text-align: center; padding: 40px 10px; color: var(--muted); }
@@ -226,12 +224,15 @@
   }
   .chip:hover { border-color: var(--accent); background: var(--panel-2); }
 
-  @media (max-width: 560px) {
+  @media (max-width: 620px) {
     header { padding: 10px 12px; gap: 8px; }
     #log { padding: 16px 12px 6px; }
     footer { padding: 9px 12px calc(9px + env(safe-area-inset-bottom)); }
     .empty h1 { font-size: 22px; }
     .brand span.t { display: none; }
+    select { max-width: 150px; }
+    .composer { flex-wrap: wrap; }
+    .composer .actions { width: 100%; }
   }
 </style>
 </head>
@@ -240,18 +241,14 @@
 <header>
   <div class="brand"><div class="dot"></div><span class="t">Gemini Chat</span></div>
   <div class="spacer"></div>
-  <select id="model" title="Model">
-    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-    <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
-    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-    <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-  </select>
-  <button class="btn icon" id="btn-key" title="API key settings">🔑</button>
-  <button class="btn icon" id="btn-clear" title="Clear chat">🗑</button>
+  <select id="model" title="Model"></select>
+  <button class="btn icon" id="btn-refresh" title="Reload the model list from Google">&#8635;</button>
+  <button class="btn icon" id="btn-key" title="API key settings">&#128273;</button>
+  <button class="btn icon" id="btn-clear" title="Clear chat">&#128465;</button>
 </header>
 
 <main>
-  <div id="log"><div class="wrap" id="empty" >
+  <div id="log"><div class="wrap" id="empty">
     <div class="empty">
       <h1>Chat with Gemini</h1>
       <p id="empty-sub">Ask anything — or switch to Image mode and describe a picture.</p>
@@ -267,7 +264,7 @@
 
 <footer>
   <div class="composer">
-    <textarea id="prompt" rows="1" placeholder="Message Gemini…  (Enter to send, Shift+Enter for newline)"></textarea>
+    <textarea id="prompt" rows="1" placeholder="Message Gemini&hellip;  (Enter to send, Shift+Enter for newline)"></textarea>
     <div class="actions">
       <div class="mode" id="mode">
         <button data-mode="text" class="on">Text</button>
@@ -279,7 +276,7 @@
   </div>
   <div class="hint">
     <span id="status">Ready</span>
-    <span>·</span>
+    <span>&middot;</span>
     <span id="keyinfo">No API key set</span>
   </div>
 </footer>
@@ -291,7 +288,7 @@
     <p>Stored only in this browser (localStorage). It is sent directly to Google and never to any other server.</p>
     <label for="keyinput">API key</label>
     <div class="field">
-      <input id="keyinput" type="password" placeholder="AIza… or AQ.…" autocomplete="off" spellcheck="false" />
+      <input id="keyinput" type="password" placeholder="AIza&hellip; or AQ.&hellip;" autocomplete="off" spellcheck="false" />
       <button class="peek" id="peek" type="button">show</button>
     </div>
     <div class="row">
@@ -300,7 +297,7 @@
     </div>
     <div class="note">
       Get one at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.
-      Note: image generation usually needs billing enabled on the key's project — text works on the free tier.
+      Text models run on the free tier; image generation usually needs billing enabled on the key's project.
     </div>
   </div>
 </div>
@@ -309,27 +306,48 @@
 "use strict";
 (function () {
   /* ------------------------------------------------------------------ *
-   * Gemini REST client. Calls Google directly from the browser —
+   * Gemini REST client. Talks to Google directly from the browser —
    * no backend, no proxy, nothing in between.
+   *
+   * Endpoints used (stable since the Gemini API's first release):
+   *   GET  /v1beta/models                      -> discover what this key can use
+   *   POST /v1beta/models/{m}:streamGenerateContent?alt=sse   -> streaming text
+   *   POST /v1beta/models/{m}:generateContent  -> image generation
+   *   POST /v1beta/models/{m}:predict          -> Imagen fallback
+   *
+   * Model IDs are discovered at runtime, so a retired name in the fallback
+   * lists below cannot permanently break the app.
    * ------------------------------------------------------------------ */
   const API = "https://generativelanguage.googleapis.com/v1beta";
-  const IMAGE_MODEL = "gemini-2.5-flash-image";
+
+  // Verified against ai.google.dev/gemini-api/docs/models (Oct 2026).
+  // Used as the initial dropdown and as a retry chain if discovery is unavailable.
+  const TEXT_FALLBACKS = [
+    "gemini-3.8-flash", "gemini-4-argon", "gemini-3.6-flash",
+    "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite"
+  ];
+  // Nano Banana family, newest first, then Imagen.
+  const IMAGE_FALLBACKS = [
+    "gemini-nano-banana-2.1", "gemini-3.1-flash-image", "gemini-3-pro-image",
+    "gemini-2.5-flash-image", "gemini-3.1-flash-lite-image"
+  ];
   const IMAGEN_MODEL = "imagen-4.0-generate-001";
+
   const LS_KEY = "gemini_api_key";
   const LS_CHAT = "gemini_chat_v1";
   const LS_MODEL = "gemini_model";
+  const LS_MODELS = "gemini_models_v1";
 
   const $ = (id) => document.getElementById(id);
   const logEl = $("log"), emptyEl = $("empty"), promptEl = $("prompt");
-  const sendBtn = $("send"), stopBtn = $("stop"), modelSel = $("model");
+  const sendBtn = $("send"), stopBtn = $("stop"), modelSel = $("model"), refreshBtn = $("btn-refresh");
   const statusEl = $("status"), keyInfoEl = $("keyinfo"), keyModal = $("keymodal");
   const keyInput = $("keyinput");
 
   let mode = "text";
   let busy = false;
   let abortCtl = null;
-  let history = [];          // [{role, parts}] for the API
-  let bubbles = [];          // [{role, text}] for redraw after auth error
+  let history = [];                                  // [{role, parts}] sent to the API
 
   /* ----------------------------- key ------------------------------- */
   const getKey = () => (localStorage.getItem(LS_KEY) || "").trim();
@@ -337,17 +355,15 @@
     v = (v || "").trim();
     if (v) localStorage.setItem(LS_KEY, v); else localStorage.removeItem(LS_KEY);
     paintKeyState();
+    if (v) discoverModels();
   }
   function paintKeyState() {
     const k = getKey();
     if (k) {
-      const tail = k.length > 4 ? "…" + k.slice(-4) : "";
-      keyInfoEl.textContent = "Key set (" + k.slice(0, 3) + "***" + tail + ")";
+      keyInfoEl.textContent = "Key set (" + k.slice(0, 3) + "***" + (k.length > 4 ? k.slice(-4) : "") + ")";
       keyInfoEl.style.color = "";
-      emptyEl.querySelector("#empty-sub").textContent =
-        "Ask anything — or switch to Image mode and describe a picture.";
     } else {
-      keyInfoEl.textContent = "No API key set — click 🔑";
+      keyInfoEl.textContent = "No API key set — click \uD83D\uDD11";
       keyInfoEl.style.color = "#ffb4b4";
     }
   }
@@ -365,6 +381,71 @@
   };
   keyModal.addEventListener("click", (e) => { if (e.target === keyModal) closeKeyModal(); });
 
+  /* --------------------- model discovery / list -------------------- */
+  const looksUnsupported = /tts|live|transcribe|embedding|embed|aqa|image|nano-banana|vision|robotics|omni|computer-use|veo|imagen|music|lyria|gemma|translate/i;
+
+  function fillModelSelect(textModels) {
+    const current = modelSel.value || localStorage.getItem(LS_MODEL) || TEXT_FALLBACKS[0];
+    modelSel.innerHTML = "";
+    const list = (textModels && textModels.length) ? textModels : TEXT_FALLBACKS;
+    list.forEach((id) => {
+      const o = document.createElement("option");
+      o.value = id; o.textContent = id;
+      modelSel.appendChild(o);
+    });
+    modelSel.value = list.includes(current) ? current : list[0];
+  }
+
+  async function discoverModels() {
+    const key = getKey();
+    if (!key) return;
+    try {
+      const resp = await fetch(API + "/models?pageSize=200", { headers: { "x-goog-api-key": key } });
+      if (!resp.ok) {
+        const withStatus = await readError(resp);
+        if (resp.status === 401 || resp.status === 403 || /API key not valid|API_KEY_INVALID/i.test(withStatus.message)) {
+          setKey("");
+          statusEl.textContent = "API key rejected — click \uD83D\uDD11";
+        } else {
+          statusEl.textContent = "Model list unavailable (using defaults)";
+        }
+        return;
+      }
+      const json = await resp.json();
+      const all = (json.models || [])
+        .map((m) => ({ id: String(m.name || "").replace(/^models\//, ""), methods: m.supportedGenerationMethods || [] }))
+        .filter((m) => m.id);
+
+      const canGenerate = (m) => m.methods.length === 0 || m.methods.indexOf("generateContent") !== -1;
+      const textModels = all.filter((m) => canGenerate(m) && !looksUnsupported.test(m.id)).map((m) => m.id);
+      const imageModels = all
+        .filter((m) => canGenerate(m) && /nano-banana|image/i.test(m.id))
+        .map((m) => m.id);
+
+      if (textModels.length) {
+        fillModelSelect(textModels);
+        statusEl.textContent = textModels.length + " models available";
+      }
+      try {
+        localStorage.setItem(LS_MODELS, JSON.stringify({ text: textModels, image: imageModels, at: Date.now() }));
+      } catch (e) { /* ignore */ }
+      // Curated newest-first order first, then any image model Google has added since.
+      if (imageModels.length) imageChain = IMAGE_FALLBACKS.concat(imageModels);
+    } catch (e) {
+      statusEl.textContent = "Model list unavailable (using defaults)";
+    }
+  }
+
+  function cachedModels() {
+    try {
+      const c = JSON.parse(localStorage.getItem(LS_MODELS) || "null");
+      if (c && c.text && c.text.length) return c;
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  refreshBtn.onclick = () => { localStorage.removeItem(LS_MODELS); discoverModels(); };
+
   /* --------------------------- rendering --------------------------- */
   const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -373,8 +454,8 @@
     const blocks = [];
     // Pull fenced code out first so nothing inside it gets formatted.
     let s = src.replace(/```([a-zA-Z0-9+#._-]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
-      blocks.push('<pre><code>' + esc(code.replace(/\n$/, "")) + "</code></pre>");
-      return "\u0000B" + (blocks.length - 1) + "\u0000";
+      blocks.push("<pre><code>" + esc(code.replace(/\n$/, "")) + "</code></pre>");
+      return "\u0000B" + (blocks.length - 1) + "\u0000 ";
     });
     s = esc(s);
 
@@ -388,7 +469,6 @@
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
     s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
 
-    // Lists
     s = s.replace(/(?:^|\n)((?:[-*+]\s+.*(?:\n|$))+)/g, (m, group) => {
       const items = group.trim().split("\n").map((l) => "<li>" + l.replace(/^[-*+]\s+/, "") + "</li>").join("");
       return "\n<ul>" + items + "</ul>";
@@ -398,9 +478,8 @@
       return "\n<ol>" + items + "</ol>";
     });
 
-    // Paragraphs / line breaks
     s = s.split(/\n{2,}/).map((chunk) => {
-      if (/^\s*<(ul|ol|pre|h[1-3]|blockquote|\u0000B)/.test(chunk) || /^\u0000B\d+\u0000\s*$/.test(chunk)) return chunk;
+      if (/^\s*<(ul|ol|pre|h[1-3]|blockquote)/.test(chunk) || /^\s*\u0000B\d+\u0000\s*$/.test(chunk)) return chunk;
       return "<p>" + chunk.replace(/\n/g, "<br>") + "</p>";
     }).join("\n");
 
@@ -415,21 +494,29 @@
     const msg = document.createElement("div");
     msg.className = "msg " + role;
     msg.innerHTML =
-      '<div class="who">' + (role === "user" ? "YOU" : "✦") + "</div>" +
+      '<div class="who">' + (role === "user" ? "YOU" : "\u2726") + "</div>" +
       '<div class="body">' +
-        '<div class="name">' + (role === "user" ? "You" : (modelSel.value)) + "</div>" +
+        '<div class="name">' + (role === "user" ? "You" : modelSel.value) + "</div>" +
         '<div class="bubble"></div>' +
       "</div>";
     wrap.appendChild(msg);
     logEl.appendChild(wrap);
     const bubble = msg.querySelector(".bubble");
     if (text != null) setBubble(bubble, text);
-    return { wrap, msg, bubble };
+    return { wrap: wrap, msg: msg, bubble: bubble, nameEl: msg.querySelector(".name") };
   }
 
   function setBubble(bubble, text) {
     bubble._raw = text;
     bubble.innerHTML = md(text);
+  }
+
+  function addNote(wrap, html) {
+    const n = document.createElement("div");
+    n.className = "note-box";
+    n.innerHTML = html;
+    n.style.marginTop = "9px";
+    wrap.appendChild(n);
   }
 
   function addToolbar(bubble, onRetry) {
@@ -444,7 +531,7 @@
     const copy = document.createElement("button");
     copy.textContent = "Copy";
     copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(bubble._raw || ""); copy.textContent = "Copied ✓"; }
+      try { await navigator.clipboard.writeText(bubble._raw || ""); copy.textContent = "Copied \u2713"; }
       catch (e) { copy.textContent = "Ctrl+C"; }
       setTimeout(() => { copy.textContent = "Copy"; }, 1300);
     };
@@ -464,55 +551,58 @@
 
   const scroll = () => { logEl.scrollTop = logEl.scrollHeight; };
 
-  /* --------------------------- API calls --------------------------- */
-  function reqHeaders() {
-    return { "Content-Type": "application/json", "x-goog-api-key": getKey() };
-  }
+  /* --------------------------- API plumbing ------------------------ */
+  const reqHeaders = () => ({ "Content-Type": "application/json", "x-goog-api-key": getKey() });
 
   async function readError(resp) {
     let body = "";
     try { body = await resp.text(); } catch (e) { /* ignore */ }
-    let msg = res.status + " " + resp.statusText;
+    let message = "HTTP " + resp.status + " " + resp.statusText;
     try {
       const j = JSON.parse(body);
-      if (j.error && j.error.message) msg = "HTTP " + resp.status + " — " + j.error.message;
-    } catch (e) { if (body) msg += "\n" + body.slice(0, 700); }
-    return msg;
+      if (j.error && j.error.message) message = "HTTP " + resp.status + " — " + j.error.message;
+    } catch (e) { if (body) message += "\n" + body.slice(0, 700); }
+    return { status: resp.status, message: message };
   }
 
-  /** Stream a text reply into `bubble`. Returns the full text. */
-  async function streamText(list, bubble) {
-    const model = modelSel.value;
+  function toError(e) { const err = new Error(e.message); err.status = e.status; return err; }
+
+  const isKeyError = (msg, status) =>
+    status === 401 || status === 403 || /API key not valid|API_KEY_INVALID|API key expired|PERMISSION_DENIED/i.test(msg);
+
+  const isMissingModel = (msg, status) =>
+    !isKeyError(msg, status) &&
+    (status === 404 || /is not found|not found for API version|NOT_FOUND|is not supported|does not support|unsupported model|unknown model/i.test(msg));
+
+  /** Stream a text reply into `bubble` using one specific model. */
+  async function streamText(model, list, bubble) {
     const url = API + "/models/" + model + ":streamGenerateContent?alt=sse";
     abortCtl = new AbortController();
 
     const resp = await fetch(url, {
-      method: "POST",
-      headers: reqHeaders(),
+      method: "POST", headers: reqHeaders(),
       body: JSON.stringify({ contents: list }),
       signal: abortCtl.signal,
     });
 
-    if (!resp.ok) {
-      if (resp.status === 400 || resp.status === 403) setKey("");
-      throw new Error(await readError(resp));
-    }
+    if (!resp.ok) throw toError(await readError(resp));
+
+    if (!resp.body || !resp.body.getReader) throw new Error("This browser cannot read streamed responses.");
 
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
     let buf = "", full = "";
-    let first = true;
 
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
+      const r = await reader.read();
+      if (r.done) break;
+      buf += dec.decode(r.value, { stream: true });
 
       const lines = buf.split("\n");
       buf = lines.pop();
 
       for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
+        if (line.indexOf("data:") !== 0) continue;
         const payload = line.slice(5).trim();
         if (!payload || payload === "[DONE]") continue;
         let json;
@@ -524,115 +614,162 @@
         for (const p of parts) {
           if (typeof p.text === "string") {
             full += p.text;
-            first = false;
             setBubble(bubble, full);
             bubble.classList.add("cursor");
             scroll();
           }
-        }
-        if (cand.finishReason && cand.finishReason !== "STOP" && !full) {
-          throw new Error("Model stopped early (finishReason: " + cand.finishReason +
-            "). This usually means a safety filter blocked the reply — try rephrasing.");
         }
       }
     }
 
     bubble.classList.remove("cursor");
     if (!full) throw new Error("The model returned an empty response.");
-    return { text: full, aborted: false };
+    return full;
   }
 
-  /** Try each known image endpoint shape; first one with an image wins. */
-  async function makeImage(promptText, bubble) {
-    const attempts = [
-      { label: IMAGE_MODEL + " (TEXT+IMAGE)",
-        url: API + "/models/" + IMAGE_MODEL + ":generateContent",
-        body: { contents: [{ parts: [{ text: promptText }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"] } },
-        kind: "gen" },
-      { label: IMAGE_MODEL + " (IMAGE)",
-        url: API + "/models/" + IMAGE_MODEL + ":generateContent",
-        body: { contents: [{ parts: [{ text: promptText }] }], generationConfig: { responseModalities: ["IMAGE"] } },
-        kind: "gen" },
-      { label: IMAGEN_MODEL + " (predict)",
-        url: API + "/models/" + IMAGEN_MODEL + ":predict",
-        body: { instances: [{ prompt: promptText }], parameters: { sampleCount: 1 } },
-        kind: "pred" },
-    ];
+  /** Walk the model chain until one works; surfaces why the others were skipped. */
+  async function streamTextWithFallback(list, bubble, wrap, nameEl) {
+    const chain = [];
+    [modelSel.value].concat(streamChain()).forEach((m) => { if (m && chain.indexOf(m) === -1) chain.push(m); });
+
+    const skipped = [];
+    for (let i = 0; i < chain.length; i++) {
+      const model = chain[i];
+      if (i > 0) {
+        statusEl.textContent = "Retrying with " + model + "…";
+        nameEl.textContent = model;
+        bubble.innerHTML = "";
+        bubble._raw = "";
+      }
+      try {
+        const text = await streamText(model, list, bubble);
+        if (skipped.length) addNote(wrap, "Skipped " + skipped.length + " unavailable model" + (skipped.length > 1 ? "s" : "") + ": " + skipped.map(esc).join(", "));
+        return { text: text, model: model };
+      } catch (e) {
+        if (e.name === "AbortError") throw e;
+        if (isMissingModel(e.message, e.status) && i < chain.length - 1) {
+          skipped.push(model);
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw new Error("No usable text model.\nTried: " + chain.join(", "));
+  }
+
+  let imageChain = null;
+  function streamChain() {
+    const seen = {}, out = [];
+    TEXT_FALLBACKS.concat(modelSel.value ? [modelSel.value] : []).forEach((m) => { if (!seen[m]) { seen[m] = 1; out.push(m); } });
+    return out;
+  }
+
+  /** Try each known image endpoint / model shape; first one with an image wins. */
+  async function makeImage(promptText, bubble, wrap, nameEl) {
+    const models = [];
+    (imageChain || IMAGE_FALLBACKS).concat(IMAGE_FALLBACKS).forEach((m) => { if (models.indexOf(m) === -1) models.push(m); });
+
+    const attempts = [];
+    models.forEach((m) => {
+      attempts.push({ model: m, kind: "gen", label: m + " (TEXT+IMAGE)", modalities: ["TEXT", "IMAGE"] });
+      attempts.push({ model: m, kind: "gen", label: m + " (IMAGE)", modalities: ["IMAGE"] });
+    });
+    attempts.push({ model: IMAGEN_MODEL, kind: "pred", label: IMAGEN_MODEL + " (:predict)" });
 
     const errors = [];
+    const skippedModels = {};
     abortCtl = new AbortController();
 
     for (let i = 0; i < attempts.length; i++) {
       const a = attempts[i];
-      statusEl.textContent = "Trying " + a.label + "… (" + (i + 1) + "/" + attempts.length + ")";
+      if (skippedModels[a.model]) continue;                 // model 404s — don't retry its other shape
+      statusEl.textContent = "Image: " + a.label + " (" + (i + 1) + "/" + attempts.length + ")";
+
+      const url = a.kind === "gen"
+        ? API + "/models/" + a.model + ":generateContent"
+        : API + "/models/" + a.model + ":predict";
+      const body = a.kind === "gen"
+        ? { contents: [{ parts: [{ text: promptText }] }], generationConfig: { responseModalities: a.modalities } }
+        : { instances: [{ prompt: promptText }], parameters: { sampleCount: 1 } };
+
       let resp;
       try {
-        resp = await fetch(a.url, {
-          method: "POST", headers: reqHeaders(),
-          body: JSON.stringify(a.body), signal: abortCtl.signal,
-        });
+        resp = await fetch(url, { method: "POST", headers: reqHeaders(), body: JSON.stringify(body), signal: abortCtl.signal });
       } catch (e) {
         if (e.name === "AbortError") throw e;
         throw new Error("Network error: " + e.message +
-          "\n\nIf this says \"Failed to fetch\", the request never reached Google — usually a browser extension, " +
-          "offline connection, or an ad-blocker blocking generativelanguage.googleapis.com.");
+          "\n\nIf this says \"Failed to fetch\", the request never reached Google — usually an ad-blocker or browser " +
+          "extension blocking generativelanguage.googleapis.com, or no internet connection.");
       }
 
       if (!resp.ok) {
-        const m = await readError(resp);
-        if (resp.status === 400 || resp.status === 403) setKey("");
-        errors.push(a.label + " → " + m.split("\n")[0]);
+        const err = await readError(resp);
+        if (isKeyError(err.message, err.status)) { setKey(""); throw toError(err); }
+        if (isMissingModel(err.message, err.status)) skippedModels[a.model] = 1;
+        errors.push(a.label + " → " + err.message.split("\n")[0]);
         continue;
       }
 
-      const json = await resp.json();
+      let json;
+      try { json = await resp.json(); }
+      catch (e) { errors.push(a.label + " → unreadable response"); continue; }
+
       let b64 = null, mime = "image/png", caption = "";
 
       if (a.kind === "gen") {
-        const parts = ((json.candidates || [])[0] || {}).content ? json.candidates[0].content.parts || [] : [];
+        const cand = (json.candidates || [])[0];
+        const parts = (cand && cand.content && cand.content.parts) || [];
         for (const p of parts) {
           const inl = p.inlineData || p.inline_data;
           if (inl && inl.data) { b64 = inl.data; mime = inl.mimeType || mime; }
-          else if (typeof p.text === "string") { caption += p.text; }
+          else if (typeof p.text === "string") caption += p.text;
         }
       } else {
         const pred = (json.predictions || [])[0];
-        if (pred && (pred.bytesBase64Encoded || pred.bytes_base64_encoded)) {
-          b64 = pred.bytesBase64Encoded || pred.bytes_base64_encoded;
+        if (pred) {
+          b64 = pred.bytesBase64Encoded || pred.bytes_base64_encoded || null;
           mime = pred.mimeType || mime;
         }
       }
 
       if (b64) {
         const src = "data:" + mime + ";base64," + b64;
-        const img = new Image();
-        img.className = "gen";
-        img.alt = promptText;
-        img.src = src;
         bubble.innerHTML = "";
         if (caption) {
           const cap = document.createElement("div");
           cap.innerHTML = md(caption);
           bubble.appendChild(cap);
         }
+        const img = new Image();
+        img.className = "gen";
+        img.alt = promptText;
+        img.src = src;
         bubble.appendChild(img);
+
         const dl = document.createElement("button");
         dl.className = "chip";
-        dl.textContent = "Download PNG";
+        dl.textContent = "Download image";
         dl.style.marginTop = "10px";
         dl.onclick = () => {
           const a2 = document.createElement("a");
-          a2.href = src; a2.download = "gemini-image-" + Date.now() + ".png"; a2.click();
+          a2.href = src;
+          a2.download = "gemini-" + Date.now() + (mime.indexOf("jpeg") !== -1 ? ".jpg" : ".png");
+          a2.click();
         };
         bubble.appendChild(dl);
+
+        nameEl.textContent = a.model;
+        if (errors.length) addNote(wrap, "Worked after skipping: " + errors.length + " endpoint" + (errors.length > 1 ? "s" : ""));
         scroll();
-        return { label: a.label };
+        return a.label;
       }
 
       errors.push(a.label + " → response contained no image");
     }
 
-    throw new Error("All image endpoints failed:\n" + errors.map((e) => "• " + e).join("\n") +
+    throw new Error("No image was returned. Tried " + attempts.length + " endpoint(s):\n" +
+      errors.slice(0, 8).map((e) => "• " + e).join("\n") +
+      (errors.length > 8 ? "\n…and " + (errors.length - 8) + " more" : "") +
       "\n\nImage generation needs billing enabled on the key's project. Text chat works without it.");
   }
 
@@ -641,7 +778,6 @@
     if (busy) return;
     const text = (override != null ? override : promptEl.value).trim();
     if (!text) return;
-
     if (!getKey()) { openKeyModal(); return; }
 
     busy = true;
@@ -654,18 +790,19 @@
     m.bubble.classList.add("cursor");
     scroll();
 
-    history.push({ role: "user", parts: [{ text }] });
+    history.push({ role: "user", parts: [{ text: text }] });
+    const outgoing = history.slice(-20);
 
     try {
       if (mode === "image") {
         m.bubble.classList.remove("cursor");
-        const r = await makeImage(text, m.bubble);
-        statusEl.textContent = "Image ready · " + r.label;
+        const label = await makeImage(text, m.bubble, m.wrap, m.nameEl);
+        statusEl.textContent = "Image ready · " + label;
         history.push({ role: "model", parts: [{ text: "[generated an image for: " + text + "]" }] });
       } else {
-        const r = await streamText(history.slice(-20), m.bubble);
+        const r = await streamTextWithFallback(outgoing, m.bubble, m.wrap, m.nameEl);
         history.push({ role: "model", parts: [{ text: r.text }] });
-        statusEl.textContent = "Done · " + r.text.length + " chars";
+        statusEl.textContent = "Done · " + r.text.length + " chars · " + r.model;
       }
       if (!m.bubble.querySelector(".err")) {
         addToolbar(m.bubble, () => { history.pop(); history.pop(); send(text); });
@@ -675,10 +812,10 @@
       if (e.name === "AbortError") {
         if (!m.bubble._raw) m.bubble.innerHTML = '<em style="color:var(--muted)">Stopped.</em>';
         statusEl.textContent = "Stopped";
-      } else if (/HTTP 400|HTTP 403|API key not valid|API_KEY_INVALID/i.test(e.message)) {
-        addError(m.bubble, "API key problem — your key was rejected. Click 🔑 to update it.", e.message);
+      } else if (isKeyError(e.message, e.status) || /API key/i.test(e.message)) {
+        addError(m.bubble, "API key problem — your key was rejected. Click \uD83D\uDD11 to update it.", e.message);
         statusEl.textContent = "Key rejected";
-      } else if (/HTTP 429|RESOURCE_EXHAUSTED|quota/i.test(e.message)) {
+      } else if (e.status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(e.message)) {
         addError(m.bubble, "Rate limit / quota exceeded", e.message);
         statusEl.textContent = "Quota exceeded";
       } else {
@@ -691,7 +828,6 @@
       sendBtn.disabled = false;
       stopBtn.hidden = true;
       abortCtl = null;
-      if (mode === "text" && statusEl.textContent === "Ready") statusEl.textContent = "Done";
     }
     saveChat();
   }
@@ -714,9 +850,9 @@
       mode = b.dataset.mode;
       document.querySelectorAll("#mode button").forEach((x) => x.classList.toggle("on", x === b));
       promptEl.placeholder = mode === "image"
-        ? "Describe the image to generate…"
-        : "Message Gemini…  (Enter to send, Shift+Enter for newline)";
-      statusEl.textContent = mode === "image" ? "Image mode — needs billing on your key" : "Ready";
+        ? "Describe the image to generate\u2026"
+        : "Message Gemini\u2026  (Enter to send, Shift+Enter for newline)";
+      if (mode === "image") statusEl.textContent = "Image mode — needs billing on your key";
     };
   });
 
@@ -741,12 +877,13 @@
       const turns = [];
       logEl.querySelectorAll(".msg").forEach((m) => {
         const b = m.querySelector(".bubble");
-        if (!b || b.querySelector("img")) return;
-        turns.push({ role: m.classList.contains("user") ? "user" : "model", raw: b._raw || "", html: b.innerHTML });
+        if (!b || b.querySelector("img")) return;          // images are too big for localStorage
+        turns.push({ role: m.classList.contains("user") ? "user" : "model", raw: b._raw || "" });
       });
       localStorage.setItem(LS_CHAT, JSON.stringify({ history: history.slice(-40), turns: turns.slice(-40) }));
     } catch (e) { /* quota — ignore */ }
   }
+
   function loadChat() {
     let saved;
     try { saved = JSON.parse(localStorage.getItem(LS_CHAT) || "null"); } catch (e) { return; }
@@ -755,20 +892,34 @@
     document.querySelectorAll(".empty").forEach((n) => n.remove());
     saved.turns.forEach((t) => {
       const m = addMsg(t.role, "");
-      m.bubble._raw = t.raw;
-      m.bubble.innerHTML = t.html;
+      setBubble(m.bubble, t.raw || "");
       addToolbar(m.bubble, null);
     });
     scroll();
   }
 
   /* ------------------------------ boot ----------------------------- */
+  const cached = cachedModels();
+  fillModelSelect(cached ? cached.text : null);
   const savedModel = localStorage.getItem(LS_MODEL);
-  if (savedModel) modelSel.value = savedModel;
+  if (savedModel) {
+    if (!Array.prototype.some.call(modelSel.options, (o) => o.value === savedModel)) {
+      const o = document.createElement("option");
+      o.value = savedModel; o.textContent = savedModel;
+      modelSel.appendChild(o);
+    }
+    modelSel.value = savedModel;
+  }
+  if (cached && cached.image && cached.image.length) imageChain = cached.image.concat(IMAGE_FALLBACKS);
+
   paintKeyState();
   loadChat();
   autoGrow();
-  if (!getKey()) setTimeout(openKeyModal, 350);
+  if (getKey()) {
+    discoverModels();
+  } else {
+    setTimeout(openKeyModal, 350);
+  }
 })();
 </script>
 </body>
