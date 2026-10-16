@@ -12,7 +12,13 @@ dependencies, no backend. It talks straight to Google's REST API from the page.
 - **Image generation** — flip the composer to *Image* mode and describe a picture.
   Tries `gemini-2.5-flash-image` (two response-modalitiy shapes) and falls back to
   Imagen `:predict`, downloading the first result that comes back.
-- **Model picker** — 2.5 Flash / Flash-Lite / Pro / 2.0 Flash.
+- **Model picker** — populated at runtime from `GET /v1beta/models`, so it always shows
+  what your key can actually use (currently up to `gemini-4-argon` and
+  `gemini-3.8-flash`). A curated fallback list keeps the dropdown useful if that call
+  fails.
+- **Automatic model failover** — if a model has been retired, the request is retried
+  down a chain of alternatives instead of erroring out, and a note tells you which
+  models were skipped.
 - **Markdown rendering** with a hand-rolled, escape-first renderer (headings, bold,
   italic, inline code, fenced code blocks, lists, quotes, links, tables-ready).
   User and model text is HTML-escaped *before* any formatting is applied, so a
@@ -56,6 +62,25 @@ the deployed site and never leaves your browser.
   standard library only. `export GEMINI_API_KEY=…` then `python3 gemini_demo.py --help`
 - **`GEMINI_SETUP.md`** — setup notes, billing caveats, and why this sandbox cannot
   reach Google's API (outbound egress is restricted to a small host allowlist).
+
+## Why this still works as the API evolves
+
+Google now recommends the **Interactions API** (`POST /v1beta/interactions`, GA since
+June 2026) for new projects, but the original **`generateContent` API this app uses
+remains fully supported** — so the client stays on the stable, widely-mirrored
+endpoints and depends on nothing but `fetch`:
+
+| Purpose | Endpoint |
+| --- | --- |
+| Discover models | `GET /v1beta/models` |
+| Streaming text | `POST /v1beta/models/{model}:streamGenerateContent?alt=sse` |
+| Image generation | `POST /v1beta/models/{model}:generateContent` with `responseModalities` |
+| Imagen fallback | `POST /v1beta/models/{model}:predict` |
+
+Model IDs verified against <https://ai.google.dev/gemini-api/docs/models> (Oct 2026).
+Image generation runs through the **Nano Banana** family
+(`gemini-nano-banana-2.1` → `gemini-3.1-flash-image` → `gemini-3-pro-image` →
+`gemini-2.5-flash-image`), falling back to Imagen's `:predict`.
 
 ## ⚠️ Never commit a real API key
 
