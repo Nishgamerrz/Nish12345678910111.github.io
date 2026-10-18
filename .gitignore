@@ -1,7 +1,0 @@
-__pycache__/
-*.pyc
-.env
-*.env
-gemini_image.png
-node_modules/
-dist/
