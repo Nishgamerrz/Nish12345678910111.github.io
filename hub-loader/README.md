@@ -14,6 +14,6 @@ Then open `http://localhost:8000`.
 
 ## Build and deploy
 
-There are no runtime dependencies. The Vercel build runs `npm run build`; `build.js` copies the static page into `dist/`.
+Vercel runs `npm run build`; Vite builds the static page into `dist/`. The only package is a development-time build dependency, not a browser runtime dependency.
 
 The deployed page is public. Do not put secrets or private game logic in client-delivered code. For game logic, use server Scripts/ModuleScripts in Roblox Studio and validate client requests on the server.
