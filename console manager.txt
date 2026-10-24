@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Aurer Console — fixed Termux installer
-# Run with: bash ac-console-fixed.txt
+# Run with: bash "console manager.txt"
 # No Python packages or frontend CDNs are required.
 
 set -euo pipefail
@@ -362,7 +362,7 @@ function renderConsoles() {
     const meta = document.createElement('div'); meta.className = 'console-meta';
     const name = document.createElement('div'); name.className = 'console-name'; name.textContent = consoleInfo.name;
     const sub = document.createElement('div'); sub.className = 'console-state';
-    sub.textContent = consoleInfo.attached ? 'Screen attached · output available' : 'Screen detached · output available';
+    sub.textContent = consoleInfo.dead ? 'Remote or dead · Delete will clean it up' : (consoleInfo.attached ? 'Screen attached · output available' : 'Screen detached · output available');
     meta.append(name, sub);
     const actions = document.createElement('div'); actions.className = 'card-actions';
     actions.append(
@@ -568,13 +568,37 @@ def list_consoles():
             "session": SESSION_PREFIX + name,
             "pid": int(pid),
             "attached": "(Attached)" in line and "(Detached)" not in line,
+            "dead": "dead" in line.lower(),
         })
     consoles.sort(key=lambda item: item["name"].lower())
     return consoles
 
 
+def find_console(name):
+    return next((item for item in list_consoles() if item["name"] == name), None)
+
+
 def console_exists(name):
-    return any(item["name"] == name for item in list_consoles())
+    return find_console(name) is not None
+
+
+def remove_dead_socket(console):
+    """Last resort for a confirmed Remote/dead entry only.
+
+    Never unlink a live screen socket. The exact pid + full session name makes
+    this unable to touch another console, and screen -wipe is always tried first.
+    """
+    if not console or not console.get("dead"):
+        return
+    socket_path = SCREEN_DIR / f"{console['pid']}.{console['session']}"
+    try:
+        socket_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # The final existence check in delete_console reports a friendly error
+        # if even the operating system cannot remove the stale entry.
+        pass
 
 
 def ensure_screenrc():
@@ -613,11 +637,45 @@ def create_console(name):
 
 def delete_console(name):
     session = session_name(name)
-    if not console_exists(name):
-        raise ApiError("Console not found.", 404)
-    result = run_screen(["-S", session, "-X", "quit"])
-    if result.returncode != 0 and console_exists(name):
-        raise ApiError("Could not delete the console: " + (result.stderr.strip() or "screen error"), 500)
+    if find_console(name) is None:
+        return  # idempotent: deleting an already-gone console is still success
+
+    # A live/attached console closes here. Remote or dead sessions cannot
+    # receive -X quit, so never show screen's raw error: continue to wipe them.
+    try:
+        run_screen(["-S", session, "-X", "quit"])
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    time.sleep(0.15)
+
+    # screen -wipe [match] removes destroyed/unreachable sessions. Target only
+    # this console; do NOT wipe unrelated dead screens belonging to the user.
+    if find_console(name) is not None:
+        try:
+            run_screen(["-wipe", session])
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        time.sleep(0.1)
+
+    # Some Termux/screen builds leave a stale socket even after targeted wipe.
+    # Remove it only while screen -ls still explicitly marks THIS entry dead.
+    current = find_console(name)
+    if current is not None and current.get("dead"):
+        remove_dead_socket(current)
+
+    # Retry with the unique pid.session matcher used by screen itself.
+    current = find_console(name)
+    if current is not None and current.get("dead"):
+        try:
+            run_screen(["-wipe", f"{current['pid']}.{session}"])
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        current = find_console(name)
+        if current is not None and current.get("dead"):
+            remove_dead_socket(current)
+
+    if find_console(name) is not None:
+        raise ApiError("This console is still active and could not be closed. Open it, run 'exit', then try Delete again.", 500)
 
 
 def clean_hardcopy(raw):
@@ -969,7 +1027,7 @@ webui_start() {
         return 0
     fi
     rm -f "$WEBUI_PID_FILE"
-    [ -f "$WEBUI_PY" ] || { echo "ERROR: Web UI files are missing; rerun ac-console-fixed.txt."; return 1; }
+    [ -f "$WEBUI_PY" ] || { echo "ERROR: Web UI files are missing; rerun 'console manager.txt'."; return 1; }
 
     # Fully detach stdin/stdout/stderr. This is the fix for HTTP/Python log
     # lines appearing over the ac dashboard: the daemon has no terminal to
@@ -1018,6 +1076,22 @@ list_names() {
     screen -ls 2>/dev/null | sed -n "s/^[[:space:]]*[0-9]*\.${SESSION_PREFIX}\([A-Za-z0-9][A-Za-z0-9_-]*\).*/\1/p"
 }
 exists() { list_names | grep -qx "$1"; }
+console_line() {
+    local name="$1"
+    screen -ls 2>/dev/null | grep -E "^[[:space:]]*[0-9]+\.${SESSION_PREFIX}${name}([[:space:]]|\()" | head -n 1
+}
+console_pid() {
+    console_line "$1" | sed -n 's/^[[:space:]]*\([0-9][0-9]*\)\..*/\1/p'
+}
+console_is_dead() { console_line "$1" | grep -qi 'dead'; }
+remove_dead_socket() {
+    local name="$1" pid=""
+    console_is_dead "$name" || return 0
+    pid="$(console_pid "$name")"
+    if [ -n "$pid" ]; then
+        rm -f -- "$SCREENDIR/$pid.${SESSION_PREFIX}${name}" 2>/dev/null || true
+    fi
+}
 valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$ ]]; }
 
 create_console() {
@@ -1039,10 +1113,45 @@ open_console() {
 }
 
 delete_console() {
-    local name="$1"
+    local name="$1" pid=""
     [ -n "$name" ] || { echo "Usage: ac delete <name>"; return 1; }
-    exists "$name" || { echo "Console '$name' not found."; return 1; }
-    screen -S "${SESSION_PREFIX}${name}" -X quit
+    if ! exists "$name"; then
+        echo "Console '$name' is already gone."
+        return 0
+    fi
+
+    # Live consoles close with quit. Remote/dead consoles reject it, so hide
+    # that expected screen error and continue through the stale-session cleanup.
+    screen -S "${SESSION_PREFIX}${name}" -X quit >/dev/null 2>&1 || true
+    sleep 0.15
+
+    # Target only this session; never wipe unrelated screens.
+    if exists "$name"; then
+        screen -wipe "${SESSION_PREFIX}${name}" >/dev/null 2>&1 || true
+        sleep 0.1
+    fi
+
+    # Fallback for Termux/screen builds that leave the dead socket behind.
+    if exists "$name" && console_is_dead "$name"; then
+        remove_dead_socket "$name"
+    fi
+
+    # Retry using screen's unique pid.session matcher, then clean the exact
+    # socket again if it is still explicitly marked Remote or dead.
+    if exists "$name" && console_is_dead "$name"; then
+        pid="$(console_pid "$name")"
+        if [ -n "$pid" ]; then
+            screen -wipe "$pid.${SESSION_PREFIX}${name}" >/dev/null 2>&1 || true
+        fi
+        if exists "$name" && console_is_dead "$name"; then
+            remove_dead_socket "$name"
+        fi
+    fi
+
+    if exists "$name"; then
+        echo "ERROR: Console '$name' is still active. Open it, run 'exit', then delete it again."
+        return 1
+    fi
     echo "Console '$name' deleted."
 }
 
