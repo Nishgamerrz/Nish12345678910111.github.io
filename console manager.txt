@@ -1,39 +1,198 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Aurer Console — fixed Termux installer
+# Console Manager — complete Termux installer
 # Run with: bash "console manager.txt"
-# No Python packages or frontend CDNs are required.
+# No Python packages, curl, wget, or frontend CDNs are required by this file.
 
 set -euo pipefail
+umask 077
 
 if [ -z "${PREFIX:-}" ]; then
     echo "ERROR: PREFIX is not set. Run this installer inside Termux."
     exit 1
 fi
 
-if [ "${AC_SKIP_INSTALL:-0}" != "1" ]; then
-    if command -v pkg >/dev/null 2>&1; then
-        # Console Manager never needs curl, but a broken Termux curl/libcurl
-        # installation usually means the package set is out of sync (for
-        # example: missing ngtcp2_crypto_get_path_challenge_data2_cb). Repair
-        # that automatically instead of letting the same linker error return.
-        if command -v curl >/dev/null 2>&1 && ! curl --version >/dev/null 2>&1; then
-            echo "Detected broken curl libraries. Syncing Termux packages to repair them..."
-            pkg update
-            pkg upgrade -y
-        fi
-        pkg install -y python screen
-    else
-        echo "ERROR: pkg was not found. Run this installer inside Termux."
-        exit 1
-    fi
-fi
-
-command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required."; exit 1; }
-command -v screen >/dev/null 2>&1 || { echo "ERROR: screen is required."; exit 1; }
-
 DIR="$HOME/.ac-consoles"
+PREFERENCES_FILE="$DIR/preferences.json"
+INSTALL_LOG="$DIR/install.log"
 mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$HOME/.screen"
 chmod 700 "$HOME/.screen" "$DIR" "$DIR/output" "$DIR/history"
+: > "$INSTALL_LOG"
+
+THEME_IDS=(midnight ocean dracula emerald sunset cyber mono contrast)
+THEME_NAMES=(Midnight Ocean Dracula Emerald Sunset Cyberpunk Monochrome "High Contrast")
+ansi_clear() { printf "\033[H\033[2J"; }
+
+valid_theme() {
+    local wanted="$1" id
+    for id in "${THEME_IDS[@]}"; do [ "$wanted" = "$id" ] && return 0; done
+    return 1
+}
+theme_name() {
+    local wanted="$1" i
+    for i in "${!THEME_IDS[@]}"; do
+        [ "${THEME_IDS[$i]}" = "$wanted" ] && { printf "%s" "${THEME_NAMES[$i]}"; return; }
+    done
+    printf "Midnight"
+}
+theme_description() {
+    case "$1" in
+        midnight) printf "Balanced blue on a deep midnight background" ;;
+        ocean) printf "Cool cyan accents inspired by deep water" ;;
+        dracula) printf "Purple accents with the classic Dracula palette" ;;
+        emerald) printf "Fresh green accents on dark forest tones" ;;
+        sunset) printf "Warm orange and coral on a dark plum background" ;;
+        cyber) printf "Electric pink and cyan for a neon terminal" ;;
+        mono) printf "Minimal neutral greys with crisp white highlights" ;;
+        contrast) printf "Maximum-readability black, white and yellow" ;;
+    esac
+}
+theme_ansi() {
+    case "$1" in
+        midnight) printf "\033[38;5;75m" ;; ocean) printf "\033[38;5;45m" ;;
+        dracula) printf "\033[38;5;141m" ;; emerald) printf "\033[38;5;42m" ;;
+        sunset) printf "\033[38;5;209m" ;; cyber) printf "\033[38;5;201m" ;;
+        mono) printf "\033[38;5;250m" ;; contrast) printf "\033[38;5;226m" ;;
+    esac
+}
+load_saved_theme() {
+    local saved=""
+    if [ -f "$PREFERENCES_FILE" ]; then
+        saved="$(sed -n 's/.*"theme"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PREFERENCES_FILE" | head -n 1)"
+    fi
+    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "midnight"; fi
+}
+save_preferences() {
+    printf '{\n  "theme": "%s"\n}\n' "$THEME_ID" > "$PREFERENCES_FILE.tmp"
+    mv "$PREFERENCES_FILE.tmp" "$PREFERENCES_FILE"
+    chmod 600 "$PREFERENCES_FILE"
+}
+THEME_ID="$(load_saved_theme)"
+
+# A piped installer can still use the phone's terminal through /dev/tty. In a
+# truly non-interactive environment it keeps the saved style instead of
+# resetting it or blocking forever waiting for input.
+INSTALLER_INPUT_FD=0
+INSTALLER_INTERACTIVE=0
+if [ -t 0 ]; then
+    INSTALLER_INTERACTIVE=1
+elif exec 3</dev/tty 2>/dev/null; then
+    INSTALLER_INPUT_FD=3
+    INSTALLER_INTERACTIVE=1
+fi
+
+installer_draw() {
+    local selected="$1" i marker color name
+    ansi_clear
+    printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
+    printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Console Manager Setup"
+    printf "\033[1;36m║\033[0m  %-46s\033[1;36m║\033[0m\n" "Choose a persistent style"
+    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    for i in "${!THEME_IDS[@]}"; do
+        marker=" "
+        [ "$i" -eq "$selected" ] && marker=">"
+        color="$(theme_ansi "${THEME_IDS[$i]}")"
+        name="$(printf "%d. %-12s" "$((i + 1))" "${THEME_NAMES[$i]}")"
+        if [ "$i" -eq "$selected" ]; then printf "  \033[7m%s %b%-18s\033[0m" "$marker" "$color" "$name";
+        else printf "   %s %b%-18s\033[0m" "$marker" "$color" "$name"; fi
+        if [ $((i % 2)) -eq 1 ]; then printf "\n"; else printf "  "; fi
+    done
+    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    printf "  Selected: \033[1m%s\033[0m\n" "$(theme_name "${THEME_IDS[$selected]}")"
+    printf "  %s\n" "$(theme_description "${THEME_IDS[$selected]}")"
+    printf "  Saved preference: %s\n" "$PREFERENCES_FILE"
+    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    printf "  [U] Up  [D] Down  [L] Left  [R] Right\n"
+    printf "  [1-8] Jump  [Enter] Save + Install  [Q] Quit\n"
+    printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n"
+}
+
+select_installer_theme() {
+    local selected=0 i key=""
+    for i in "${!THEME_IDS[@]}"; do [ "${THEME_IDS[$i]}" = "$THEME_ID" ] && selected="$i"; done
+    if [ "$INSTALLER_INTERACTIVE" -eq 0 ]; then
+        save_preferences
+        printf "Console Manager: using saved %s style.\n" "$(theme_name "$THEME_ID")"
+        return
+    fi
+    while true; do
+        installer_draw "$selected"
+        IFS= read -rsn1 -u "$INSTALLER_INPUT_FD" key || { save_preferences; return; }
+        case "$key" in
+            u|U) [ "$selected" -ge 2 ] && selected=$((selected - 2)) ;;
+            d|D) [ "$selected" -lt 6 ] && selected=$((selected + 2)) ;;
+            l|L) [ $((selected % 2)) -eq 1 ] && selected=$((selected - 1)) ;;
+            r|R) [ $((selected % 2)) -eq 0 ] && selected=$((selected + 1)) ;;
+            [1-8]) selected=$((key - 1)) ;;
+            ""|$'\n'|$'\r')
+                THEME_ID="${THEME_IDS[$selected]}"
+                save_preferences
+                return
+                ;;
+            q|Q) ansi_clear; echo "Console Manager installation cancelled. Your saved style is unchanged."; exit 0 ;;
+        esac
+    done
+}
+
+dependency_screen() {
+    local label="$1" step="$2" total="$3" percent filled empty
+    percent=$((step * 100 / total))
+    filled=$((percent * 30 / 100))
+    empty=$((30 - filled))
+    ansi_clear
+    printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
+    printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Console Manager Setup"
+    printf "\033[1;36m║\033[0m  %-46s\033[1;36m║\033[0m\n" "Installing dependencies"
+    printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n\n"
+    printf "  Style: %b%s\033[0m (saved)\n" "$(theme_ansi "$THEME_ID")" "$(theme_name "$THEME_ID")"
+    printf "  Step %d/%d\n\n" "$step" "$total"
+    printf "  ["; printf "%${filled}s" | tr ' ' '#'; printf "%${empty}s" | tr ' ' '-'; printf "] %3d%%\n\n" "$percent"
+    printf "  %s\n" "$label"
+}
+run_dependency_step() {
+    local label="$1" step="$2" total="$3" pid status i=0
+    shift 3
+    dependency_screen "$label" "$step" "$total"
+    printf '\n$ %s\n' "$*" >> "$INSTALL_LOG"
+    "$@" >> "$INSTALL_LOG" 2>&1 &
+    pid=$!
+    local frames=('|' '/' '-' '\')
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r\033[2K  %s %s" "${frames[$((i % 4))]}" "$label"
+        i=$((i + 1))
+        sleep 0.12
+    done
+    if wait "$pid"; then status=0; else status=$?; fi
+    if [ "$status" -ne 0 ]; then
+        printf "\r\033[2K  ERROR: %s failed (%d).\n\n" "$label" "$status"
+        tail -n 14 "$INSTALL_LOG"
+        exit "$status"
+    fi
+    printf "\r\033[2K  ✓ %s\n" "$label"
+    sleep 0.12
+}
+install_dependencies() {
+    local repair_curl=0 total=2 step=1
+    if command -v curl >/dev/null 2>&1 && ! curl --version >/dev/null 2>&1; then repair_curl=1; total=3; fi
+    : > "$INSTALL_LOG"
+    if [ "${AC_SKIP_INSTALL:-0}" = "1" ]; then
+        run_dependency_step "Checking dependencies (install skipped by test mode)" 1 1 true
+        return
+    fi
+    command -v pkg >/dev/null 2>&1 || { echo "ERROR: pkg was not found. Run this installer inside Termux."; exit 1; }
+    run_dependency_step "Refreshing Termux package index" "$step" "$total" pkg update
+    step=$((step + 1))
+    if [ "$repair_curl" -eq 1 ]; then
+        run_dependency_step "Repairing curl and Termux libraries" "$step" "$total" pkg upgrade -y
+        step=$((step + 1))
+    fi
+    run_dependency_step "Installing Python and GNU Screen" "$step" "$total" pkg install -y python screen
+}
+
+# 1) Style selection happens first. 2) Packages are installed afterwards.
+select_installer_theme
+install_dependencies
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required."; exit 1; }
+command -v screen >/dev/null 2>&1 || { echo "ERROR: screen is required."; exit 1; }
 
 # Stop only the old Web UI process. Existing screen consoles are left alone.
 if [ -f "$DIR/webui.pid" ]; then
@@ -47,7 +206,7 @@ fi
 
 cat > "$DIR/webui.py" <<'PYEOF'
 #!/usr/bin/env python3
-"""Aurer Console Web UI.
+"""Console Manager Web UI.
 
 The browser talks to the SAME interactive bash inside each screen session.
 It does not run one-off shell commands, so cwd, environment and shell state are
@@ -85,6 +244,19 @@ SCREEN_LINE_RE = re.compile(r"^\s*(\d+)\.ac_([A-Za-z0-9][A-Za-z0-9_-]{0,31})(?:\
 COMMAND_CACHE = {"at": 0.0, "commands": []}
 COMMAND_CACHE_LOCK = threading.Lock()
 HISTORY_LOCK = threading.Lock()
+PREFERENCES_LOCK = threading.Lock()
+PREFERENCES_FILE = BASE_DIR / "preferences.json"
+WEB_THEMES = [
+    {"id": "midnight", "name": "Midnight", "description": "Balanced blue"},
+    {"id": "ocean", "name": "Ocean", "description": "Cool cyan"},
+    {"id": "dracula", "name": "Dracula", "description": "Classic purple"},
+    {"id": "emerald", "name": "Emerald", "description": "Forest green"},
+    {"id": "sunset", "name": "Sunset", "description": "Warm coral"},
+    {"id": "cyber", "name": "Cyberpunk", "description": "Electric neon"},
+    {"id": "mono", "name": "Monochrome", "description": "Minimal grey"},
+    {"id": "contrast", "name": "High Contrast", "description": "Maximum readability"},
+]
+THEME_IDS = {theme["id"] for theme in WEB_THEMES}
 
 for directory in (BASE_DIR, OUTPUT_DIR, HISTORY_DIR, SCREEN_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -110,21 +282,59 @@ HTML = r'''<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#080d17">
-<title>Aurer Console</title>
+<title>Console Manager</title>
 <style>
 :root {
   color-scheme: dark;
-  --bg: #080d17;
-  --panel: rgba(17, 25, 40, .92);
-  --panel-2: #111a2a;
-  --line: #243249;
-  --text: #edf4ff;
-  --muted: #8e9db5;
-  --blue: #67a6ff;
-  --blue-2: #377df3;
-  --green: #54d69a;
-  --red: #ff7381;
+  --bg: #080d17; --panel: rgba(17,25,40,.92); --panel-2: #111a2a;
+  --line: #243249; --text: #edf4ff; --muted: #8e9db5;
+  --blue: #67a6ff; --blue-2: #377df3; --green: #54d69a; --red: #ff7381;
+  --input-bg: #0a1220; --button-bg: #18243a; --button-hover: #20304b;
+  --terminal-bg: #070c14; --terminal-text: #d5e5f8; --terminal-bar: #101929;
+  --glow: rgba(55,125,243,.18); --glow-2: rgba(84,214,154,.07);
   --shadow: 0 18px 55px rgba(0,0,0,.32);
+}
+body[data-theme="ocean"] {
+  --bg:#061218; --panel:rgba(10,29,38,.94); --panel-2:#0c2530; --line:#1c4652;
+  --text:#e8fbff; --muted:#84aeb7; --blue:#4dd6e8; --blue-2:#168ca5; --green:#4ade9d; --red:#ff7d90;
+  --input-bg:#071a22; --button-bg:#12313d; --button-hover:#194452; --terminal-bg:#041015;
+  --terminal-text:#d2f5f7; --terminal-bar:#0b2029; --glow:rgba(27,195,216,.17); --glow-2:rgba(77,222,157,.07);
+}
+body[data-theme="dracula"] {
+  --bg:#1d1e26; --panel:rgba(40,42,54,.95); --panel-2:#282a36; --line:#4b4e63;
+  --text:#f8f8f2; --muted:#a7aac0; --blue:#bd93f9; --blue-2:#8256c7; --green:#50fa7b; --red:#ff5555;
+  --input-bg:#22232e; --button-bg:#34364a; --button-hover:#44475c; --terminal-bg:#191a21;
+  --terminal-text:#f8f8f2; --terminal-bar:#282a36; --glow:rgba(189,147,249,.16); --glow-2:rgba(80,250,123,.06);
+}
+body[data-theme="emerald"] {
+  --bg:#07130f; --panel:rgba(13,35,27,.94); --panel-2:#102a20; --line:#28503e;
+  --text:#edfff6; --muted:#8eb7a4; --blue:#62dfa5; --blue-2:#238b61; --green:#62dfa5; --red:#ff8290;
+  --input-bg:#091c15; --button-bg:#173a2b; --button-hover:#20503b; --terminal-bg:#040e0a;
+  --terminal-text:#d9f8e8; --terminal-bar:#0d241b; --glow:rgba(52,198,133,.17); --glow-2:rgba(98,223,165,.07);
+}
+body[data-theme="sunset"] {
+  --bg:#1b0f16; --panel:rgba(42,24,32,.94); --panel-2:#321b25; --line:#5b3541;
+  --text:#fff3ed; --muted:#c0a0a6; --blue:#ffad66; --blue-2:#c96645; --green:#8bd69a; --red:#ff7085;
+  --input-bg:#22131b; --button-bg:#452733; --button-hover:#5a3340; --terminal-bg:#130a10;
+  --terminal-text:#ffe6da; --terminal-bar:#2b1821; --glow:rgba(255,130,80,.16); --glow-2:rgba(255,190,100,.06);
+}
+body[data-theme="cyber"] {
+  --bg:#090714; --panel:rgba(23,17,37,.95); --panel-2:#211531; --line:#4c2e67;
+  --text:#f8edff; --muted:#b39ac5; --blue:#ff4fd8; --blue-2:#a62c9d; --green:#4fffea; --red:#ff5c7a;
+  --input-bg:#0e0a1c; --button-bg:#2b1940; --button-hover:#3b2254; --terminal-bg:#06050d;
+  --terminal-text:#d9faff; --terminal-bar:#181025; --glow:rgba(255,79,216,.16); --glow-2:rgba(79,255,234,.07);
+}
+body[data-theme="mono"] {
+  --bg:#101112; --panel:rgba(27,29,31,.95); --panel-2:#222426; --line:#42464a;
+  --text:#f4f4f4; --muted:#a6aaae; --blue:#e6e6e6; --blue-2:#656b71; --green:#b9d1c0; --red:#ef9a9a;
+  --input-bg:#141618; --button-bg:#2b2e31; --button-hover:#3a3e42; --terminal-bg:#090a0b;
+  --terminal-text:#e8e8e8; --terminal-bar:#1b1d1f; --glow:rgba(255,255,255,.07); --glow-2:rgba(255,255,255,.03);
+}
+body[data-theme="contrast"] {
+  --bg:#000; --panel:rgba(5,5,5,.98); --panel-2:#111; --line:#e8e8e8;
+  --text:#fff; --muted:#e0e0e0; --blue:#ffe600; --blue-2:#665800; --green:#58ff8b; --red:#ff7b88;
+  --input-bg:#000; --button-bg:#181818; --button-hover:#333; --terminal-bg:#000;
+  --terminal-text:#fff; --terminal-bar:#0a0a0a; --glow:rgba(255,230,0,.10); --glow-2:rgba(255,255,255,.04);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -132,29 +342,36 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 12% -10%, rgba(55,125,243,.18), transparent 38rem),
-    radial-gradient(circle at 100% 10%, rgba(84,214,154,.07), transparent 30rem),
+    radial-gradient(circle at 12% -10%, var(--glow), transparent 38rem),
+    radial-gradient(circle at 100% 10%, var(--glow-2), transparent 30rem),
     var(--bg);
   color: var(--text);
   font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 .app { width: min(1080px, 100%); margin: 0 auto; padding: 26px 20px 40px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.topbar-actions { display: flex; align-items: center; gap: 9px; }
+.style-control { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.style-control select {
+  max-width: 145px; border: 1px solid var(--line); border-radius: 9px; outline: none;
+  background: var(--input-bg); color: var(--text); padding: 7px 26px 7px 9px; cursor: pointer;
+}
+.style-control select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--glow); }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .logo {
   width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center;
-  border: 1px solid #36517b; border-radius: 12px;
-  background: linear-gradient(145deg, #1d3558, #101b2c);
-  color: #9ec4ff; font: 700 17px/1 ui-monospace, monospace; box-shadow: var(--shadow);
+  border: 1px solid var(--line); border-radius: 12px;
+  background: linear-gradient(145deg, var(--panel-2), var(--input-bg));
+  color: var(--blue); font: 700 17px/1 ui-monospace, monospace; box-shadow: var(--shadow);
 }
 h1, h2, p { margin: 0; }
 h1 { font-size: 18px; letter-spacing: -.02em; }
 .subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .status-pill, .mini-badge {
   display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line);
-  border-radius: 999px; color: var(--muted); background: rgba(13,21,34,.75);
+  border-radius: 999px; color: var(--muted); background: var(--panel-2);
   padding: 6px 10px; font-size: 12px; white-space: nowrap;
 }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(84,214,154,.7); }
@@ -172,21 +389,21 @@ h1 { font-size: 18px; letter-spacing: -.02em; }
 .create-row { display: flex; gap: 8px; width: min(410px, 58%); }
 input {
   min-width: 0; width: 100%; border: 1px solid #2b3b55; border-radius: 10px;
-  outline: none; background: #0a1220; color: var(--text); padding: 10px 12px;
+  outline: none; background: var(--input-bg); color: var(--text); padding: 10px 12px;
   transition: border-color .15s, box-shadow .15s;
 }
 input:focus { border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(55,125,243,.14); }
 input::placeholder { color: #65758e; }
 .btn {
-  border: 1px solid #30415e; border-radius: 10px; background: #18243a; color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; background: var(--button-bg); color: var(--text);
   padding: 9px 13px; cursor: pointer; white-space: nowrap; transition: transform .12s, background .12s, border-color .12s;
 }
-.btn:hover { background: #20304b; border-color: #425b81; }
+.btn:hover { background: var(--button-hover); border-color: var(--blue); }
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .btn:disabled { opacity: .5; cursor: wait; }
 .btn-primary { background: var(--blue-2); border-color: #5592f6; color: white; font-weight: 600; }
-.btn-primary:hover { background: #2f72df; }
+.btn-primary:hover { background: var(--blue-2); filter: brightness(1.12); }
 .btn-danger { color: #ff9aa5; background: rgba(105,28,40,.16); border-color: #51313f; }
 .btn-danger:hover { background: rgba(130,34,48,.3); border-color: #78404f; }
 .btn-ghost { background: transparent; }
@@ -198,7 +415,7 @@ input::placeholder { color: #65758e; }
 .console-card:last-child { border-bottom: 0; }
 .console-glyph {
   width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto;
-  border-radius: 10px; background: rgba(55,125,243,.11); color: var(--blue);
+  border-radius: 10px; background: var(--glow); color: var(--blue);
   font: 700 13px ui-monospace, monospace;
 }
 .console-meta { flex: 1; min-width: 0; }
@@ -211,23 +428,23 @@ input::placeholder { color: #65758e; }
 .console-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .console-heading h2 { font-size: 18px; overflow-wrap: anywhere; }
 .terminal-window { border-radius: 16px; overflow: hidden; }
-.terminal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: #101929; border-bottom: 1px solid var(--line); }
+.terminal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: var(--terminal-bar); border-bottom: 1px solid var(--line); }
 .terminal-title { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
 .terminal-title .lights { color: #53647e; letter-spacing: 4px; }
 .terminal-output {
   height: min(58vh, 590px); min-height: 300px; margin: 0; padding: 17px;
-  overflow: auto; overscroll-behavior: contain; background: #070c14; color: #d5e5f8;
+  overflow: auto; overscroll-behavior: contain; background: var(--terminal-bg); color: var(--terminal-text);
   font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; user-select: text;
 }
-.command-dock { position: relative; padding: 13px; background: #101929; border-top: 1px solid var(--line); }
+.command-dock { position: relative; padding: 13px; background: var(--terminal-bar); border-top: 1px solid var(--line); }
 .command-form { display: flex; gap: 9px; }
 .command-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .command-hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
 .suggestions {
   position: absolute; z-index: 5; left: 13px; right: 13px; bottom: calc(100% - 3px);
   max-height: 250px; overflow: auto; padding: 6px; border: 1px solid #355076;
-  border-radius: 12px; background: #111c2e; box-shadow: 0 16px 45px rgba(0,0,0,.5);
+  border-radius: 12px; background: var(--panel-2); box-shadow: 0 16px 45px rgba(0,0,0,.5);
 }
 .suggestion-label { padding: 5px 8px; color: var(--muted); font-size: 11px; }
 .suggestion {
@@ -235,7 +452,7 @@ input::placeholder { color: #65758e; }
   background: transparent; color: #dbe9fb; text-align: left; cursor: pointer;
   font: 12px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis;
 }
-.suggestion:hover, .suggestion.active { background: #203451; color: white; }
+.suggestion:hover, .suggestion.active { background: var(--button-hover); color: var(--text); }
 .toast {
   position: fixed; z-index: 20; left: 50%; bottom: 22px; transform: translate(-50%, 20px);
   max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #355076;
@@ -246,7 +463,10 @@ input::placeholder { color: #65758e; }
 .toast.error { border-color: #75404e; background: #351c28; color: #ffc0c7; }
 @media (max-width: 640px) {
   .app { padding: 18px 12px 28px; }
-  .topbar { margin-bottom: 18px; }
+  .topbar { margin-bottom: 18px; align-items: flex-start; flex-wrap: wrap; }
+  .topbar-actions { width: 100%; justify-content: space-between; }
+  .style-control { flex: 1; }
+  .style-control select { flex: 1; max-width: none; }
   .status-pill { padding: 6px 8px; }
   .status-pill .status-copy { display: none; }
   .stats-grid { grid-template-columns: 1fr; gap: 8px; }
@@ -264,14 +484,17 @@ input::placeholder { color: #65758e; }
 }
 </style>
 </head>
-<body>
+<body data-theme="__INITIAL_THEME__">
 <main class="app">
   <header class="topbar">
     <div class="brand">
       <div class="logo" aria-hidden="true">&gt;_</div>
-      <div><h1>Aurer Console</h1><p class="subtitle">Your Termux screens, in one clean dashboard</p></div>
+      <div><h1>Console Manager</h1><p class="subtitle">Your Termux screens, in one clean dashboard</p></div>
     </div>
-    <div class="status-pill"><span class="status-dot"></span><span class="status-copy">Web UI online</span><span id="consoleCount">0</span></div>
+    <div class="topbar-actions">
+      <label class="style-control">Style <select id="themeSelect" aria-label="Web dashboard style"></select></label>
+      <div class="status-pill"><span class="status-dot"></span><span class="status-copy">Web UI online</span><span id="consoleCount">0</span></div>
+    </div>
   </header>
 
   <section id="dashboardView">
@@ -322,7 +545,8 @@ input::placeholder { color: #65758e; }
 const byId = id => document.getElementById(id);
 const state = {
   consoles: [], active: null, output: '', outputBusy: false,
-  suggestions: [], suggestionIndex: -1, suggestTimer: null, toastTimer: null
+  suggestions: [], suggestionIndex: -1, suggestTimer: null, toastTimer: null,
+  theme: document.body.dataset.theme || 'midnight', themes: []
 };
 
 async function api(path, options = {}) {
@@ -343,6 +567,35 @@ function notify(message, isError = false) {
   el.classList.add('show');
   clearTimeout(state.toastTimer);
   state.toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function applyTheme(theme) {
+  state.theme = theme;
+  document.body.dataset.theme = theme;
+  byId('themeSelect').value = theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+}
+function renderThemes(themes, selected) {
+  const select = byId('themeSelect');
+  if (!select.options.length) {
+    for (const theme of themes) {
+      const option = document.createElement('option');
+      option.value = theme.id; option.textContent = `${theme.name} · ${theme.description}`;
+      select.append(option);
+    }
+  }
+  state.themes = themes;
+  applyTheme(selected);
+}
+async function changeTheme() {
+  const previous = state.theme;
+  const selected = byId('themeSelect').value;
+  applyTheme(selected);
+  try {
+    const data = await api('/api/preferences', jsonOptions({ theme: selected }));
+    applyTheme(data.preferences.theme);
+    notify('Style saved. It will be used after restarts too.');
+  } catch (error) { applyTheme(previous); notify(error.message, true); }
 }
 function renderStats(stats) {
   byId('loadStat').textContent = stats.load || 'N/A';
@@ -385,6 +638,7 @@ async function refreshDashboard(showErrors = false) {
   if (state.active) return;
   try {
     const data = await api('/api/state');
+    renderThemes(data.themes, data.preferences.theme);
     state.consoles = data.consoles; renderStats(data.stats); renderConsoles();
     byId('dashboardError').hidden = true;
   } catch (error) {
@@ -509,6 +763,7 @@ function commandKeys(event) {
 }
 
 byId('createForm').addEventListener('submit', createConsole);
+byId('themeSelect').addEventListener('change', changeTheme);
 byId('commandForm').addEventListener('submit', executeCommand);
 byId('commandInput').addEventListener('input', queueSuggestions);
 byId('commandInput').addEventListener('keydown', commandKeys);
@@ -536,6 +791,25 @@ class ApiError(Exception):
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+def load_preferences():
+    try:
+        data = json.loads(PREFERENCES_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    theme = data.get("theme") if isinstance(data, dict) else None
+    return {"theme": theme if theme in THEME_IDS else "midnight"}
+
+
+def save_preferences(theme):
+    if theme not in THEME_IDS:
+        raise ApiError("Unknown style. Choose one of the available themes.")
+    with PREFERENCES_LOCK:
+        temporary = PREFERENCES_FILE.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"theme": theme}, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, PREFERENCES_FILE)
+    return {"theme": theme}
 
 
 def validate_name(name):
@@ -857,7 +1131,7 @@ def format_bytes(value):
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    server_version = "AurerConsole/2.0"
+    server_version = "ConsoleManager/3.0"
     sys_version = ""
 
     # Never write HTTP access logs to the terminal running the ac dashboard.
@@ -880,7 +1154,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_html(self):
-        body = HTML.encode("utf-8")
+        page = HTML.replace("__INITIAL_THEME__", load_preferences()["theme"])
+        body = page.encode("utf-8")
         self.send_response(200)
         self.common_headers()
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -925,7 +1200,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if parsed.path in ("/", "/index.html"):
                 self.send_html()
             elif parsed.path == "/api/state":
-                self.send_json({"ok": True, "consoles": list_consoles(), "stats": get_stats()})
+                self.send_json({"ok": True, "consoles": list_consoles(), "stats": get_stats(), "preferences": load_preferences(), "themes": WEB_THEMES})
             elif parsed.path == "/api/output":
                 name = validate_name(query.get("name", [""])[0])
                 data = read_output(name)
@@ -951,6 +1226,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 name = validate_name(body.get("name", ""))
                 delete_console(name)
                 self.send_json({"ok": True})
+            elif path == "/api/preferences":
+                preferences = save_preferences(body.get("theme", ""))
+                self.send_json({"ok": True, "preferences": preferences})
             elif path == "/api/execute":
                 name = validate_name(body.get("name", ""))
                 execute_command(name, body.get("command", ""))
@@ -969,7 +1247,7 @@ class Server(http.server.ThreadingHTTPServer):
 if __name__ == "__main__":
     ensure_screenrc()
     server = Server((WEB_HOST, WEB_PORT), Handler)
-    print(f"Aurer Web UI listening on http://{WEB_HOST}:{WEB_PORT}", flush=True)
+    print(f"Console Manager Web UI listening on http://{WEB_HOST}:{WEB_PORT}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -986,6 +1264,7 @@ RC="$DIR/screenrc"
 WEBUI_PY="$DIR/webui.py"
 WEBUI_PID_FILE="$DIR/webui.pid"
 WEBUI_LOG="$DIR/webui.log"
+PREFERENCES_FILE="$DIR/preferences.json"
 WEB_HOST="${AC_WEB_HOST:-127.0.0.1}"
 WEB_PORT="${AC_WEB_PORT:-5000}"
 export SCREENDIR="$HOME/.screen"
@@ -1016,6 +1295,71 @@ ansi_clear()      { printf "\033[H\033[2J"; }
 ansi_goto()       { printf "\033[%d;1H" "$1"; }
 ansi_save()       { printf "\033[s"; }
 ansi_restore()    { printf "\033[u"; }
+
+THEME_IDS=(midnight ocean dracula emerald sunset cyber mono contrast)
+THEME_NAMES=(Midnight Ocean Dracula Emerald Sunset Cyberpunk Monochrome "High Contrast")
+valid_theme() {
+    local wanted="$1" id
+    for id in "${THEME_IDS[@]}"; do [ "$wanted" = "$id" ] && return 0; done
+    return 1
+}
+theme_name() {
+    local wanted="$1" i
+    for i in "${!THEME_IDS[@]}"; do
+        [ "${THEME_IDS[$i]}" = "$wanted" ] && { printf "%s" "${THEME_NAMES[$i]}"; return; }
+    done
+    printf "Midnight"
+}
+load_saved_theme() {
+    local saved=""
+    if [ -f "$PREFERENCES_FILE" ]; then
+        saved="$(sed -n 's/.*"theme"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PREFERENCES_FILE" | head -n 1)"
+    fi
+    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "midnight"; fi
+}
+save_preferences() {
+    printf '{\n  "theme": "%s"\n}\n' "$THEME_ID" > "$PREFERENCES_FILE.tmp"
+    mv "$PREFERENCES_FILE.tmp" "$PREFERENCES_FILE"
+    chmod 600 "$PREFERENCES_FILE"
+}
+apply_cli_theme() {
+    C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'
+    case "$THEME_ID" in
+        midnight) C_BORDER=$'\033[38;5;75m'; C_ACCENT=$'\033[38;5;81m'; C_TEXT=$'\033[38;5;252m'; C_MUTED=$'\033[38;5;244m'; C_SELECTED=$'\033[48;5;24m\033[38;5;255m' ;;
+        ocean) C_BORDER=$'\033[38;5;45m'; C_ACCENT=$'\033[38;5;51m'; C_TEXT=$'\033[38;5;195m'; C_MUTED=$'\033[38;5;109m'; C_SELECTED=$'\033[48;5;25m\033[38;5;255m' ;;
+        dracula) C_BORDER=$'\033[38;5;141m'; C_ACCENT=$'\033[38;5;183m'; C_TEXT=$'\033[38;5;255m'; C_MUTED=$'\033[38;5;103m'; C_SELECTED=$'\033[48;5;60m\033[38;5;255m' ;;
+        emerald) C_BORDER=$'\033[38;5;42m'; C_ACCENT=$'\033[38;5;48m'; C_TEXT=$'\033[38;5;194m'; C_MUTED=$'\033[38;5;108m'; C_SELECTED=$'\033[48;5;22m\033[38;5;255m' ;;
+        sunset) C_BORDER=$'\033[38;5;209m'; C_ACCENT=$'\033[38;5;216m'; C_TEXT=$'\033[38;5;224m'; C_MUTED=$'\033[38;5;174m'; C_SELECTED=$'\033[48;5;95m\033[38;5;255m' ;;
+        cyber) C_BORDER=$'\033[38;5;201m'; C_ACCENT=$'\033[38;5;51m'; C_TEXT=$'\033[38;5;225m'; C_MUTED=$'\033[38;5;140m'; C_SELECTED=$'\033[48;5;90m\033[38;5;255m' ;;
+        mono) C_BORDER=$'\033[38;5;250m'; C_ACCENT=$'\033[38;5;255m'; C_TEXT=$'\033[38;5;252m'; C_MUTED=$'\033[38;5;244m'; C_SELECTED=$'\033[48;5;238m\033[38;5;255m' ;;
+        contrast) C_BORDER=$'\033[38;5;226m'; C_ACCENT=$'\033[38;5;231m'; C_TEXT=$'\033[38;5;255m'; C_MUTED=$'\033[38;5;252m'; C_SELECTED=$'\033[48;5;236m\033[38;5;226m' ;;
+    esac
+}
+cycle_theme() {
+    local i next=0
+    for i in "${!THEME_IDS[@]}"; do
+        if [ "${THEME_IDS[$i]}" = "$THEME_ID" ]; then next=$(((i + 1) % ${#THEME_IDS[@]})); break; fi
+    done
+    THEME_ID="${THEME_IDS[$next]}"
+    save_preferences
+    apply_cli_theme
+}
+set_theme_command() {
+    local wanted="${1:-}"
+    if [ -z "$wanted" ]; then
+        printf "Current style: %s (%s)\nAvailable styles:\n" "$(theme_name "$THEME_ID")" "$THEME_ID"
+        printf '  %s\n' "${THEME_IDS[@]}"
+        echo "Use: ac theme <style>"
+        return
+    fi
+    valid_theme "$wanted" || { echo "Unknown style '$wanted'. Run 'ac theme' to see choices."; return 1; }
+    THEME_ID="$wanted"
+    save_preferences
+    apply_cli_theme
+    printf "Saved %s style for Termux and Web dashboards.\n" "$(theme_name "$THEME_ID")"
+}
+THEME_ID="$(load_saved_theme)"
+apply_cli_theme
 
 webui_pid() {
     local pid=""
@@ -1165,65 +1509,87 @@ delete_console() {
 }
 
 get_stats() {
-    local mem_used mem_total mem_pct disk load web
+    local mem_used mem_total mem_pct disk_pct load web
     mem_used=$(free -m 2>/dev/null | awk '/Mem:/{print $3}')
     mem_total=$(free -m 2>/dev/null | awk '/Mem:/{print $2}')
     if [ -n "$mem_used" ] && [ -n "$mem_total" ] && [ "$mem_total" -gt 0 ] 2>/dev/null; then
         mem_pct=$(awk "BEGIN{printf \"%d\", $mem_used*100/$mem_total}")
-    else
-        mem_pct="?"
-    fi
-    disk=$(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $3"/"$2" "$5}')
-    load=$(awk '{print $1" "$2" "$3}' /proc/loadavg 2>/dev/null || echo "N/A")
-    web=$(webui_status)
-    echo "Load:$load RAM:${mem_used:-?}/${mem_total:-?}MB($mem_pct%) $web"
+    else mem_pct="?"; fi
+    disk_pct=$(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $5}')
+    load=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "?")
+    web=$(webui_running && printf "ON" || printf "OFF")
+    printf "RAM:%s%% Disk:%s Web:%s L:%s" "$mem_pct" "${disk_pct:-?}" "$web" "$load"
 }
 
 show_help() {
 cat <<EOF
-Aurer Console (ac):
-  ac                 Dashboard
+Console Manager (ac):
+  ac                 Themed interactive dashboard
   ac list            List consoles
   ac create <name>   Create console
   ac open <name>     Open console in Termux
-  ac delete <name>   Delete console
+  ac delete <name>   Delete live or Remote/dead console
+  ac theme           Show saved style and all choices
+  ac theme <style>   Save a style for Termux + Web
   ac webui           Toggle Web UI
   ac webui-start     Start Web UI at http://localhost:$WEB_PORT
   ac webui-stop      Stop Web UI
   ac webui-status    Show Web UI status
 
+Dashboard keys:
+  U / D       Move up / down
+  L / R       Move left / right (also changes selection)
+  Enter       Open selected console
+  C           Create       X  Delete selected
+  T           Cycle + save style
+  N           Toggle Web   H  Help           Q  Quit
+
 Web UI:
-  Open a console to see its real screen output and run commands in that
-  same shell. Existing output is restored from screen scrollback.
+  Use the Style selector in the header. Preferences are saved in
+  ~/.ac-consoles/preferences.json and survive restarts/reinstalls.
 
 Exit a console in Termux:
   Double-tap q q quickly.
 EOF
 }
 
-HEADER_ROWS=5
-STATS_ROW=4
+STATS_ROW=5
+CONSOLES=()
+SELECTED_INDEX=0
 
 draw_full() {
-    local names stats
-    names=$(list_names)
+    local stats count i name label status marker
     stats=$(get_stats)
+    count=${#CONSOLES[@]}
     ansi_clear
-    printf "╔════════════════════════════════════════╗\n"
-    printf "║  %-38s║\n" "Aurer Console Manager"
-    printf "╠════════════════════════════════════════╣\n"
-    printf "║  %-38s║\n" "$stats"
-    printf "╠════════════════════════════════════════╣\n"
-    if [ -z "$names" ]; then
-        printf "║  %-38s║\n" "(no consoles running)"
+    printf "%b╔════════════════════════════════════════╗%b\n" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %b%-38s%b%b║%b\n" "$C_BORDER" "$C_RESET" "$C_ACCENT$C_BOLD" "Console Manager" "$C_RESET" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_MUTED" "Style: $(theme_name "$THEME_ID") | $count console(s)" "$C_BORDER" "$C_RESET"
+    printf "%b╠════════════════════════════════════════╣%b\n" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "$stats" "$C_BORDER" "$C_RESET"
+    printf "%b╠════════════════════════════════════════╣%b\n" "$C_BORDER" "$C_RESET"
+    if [ "$count" -eq 0 ]; then
+        printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_MUTED" "  No consoles — press C to create" "$C_BORDER" "$C_RESET"
     else
-        while IFS= read -r n; do printf "║  ▶ %-36s║\n" "$n"; done <<< "$names"
+        for i in "${!CONSOLES[@]}"; do
+            name="${CONSOLES[$i]}"
+            status="live"
+            console_is_dead "$name" && status="dead"
+            marker=" "
+            [ "$i" -eq "$SELECTED_INDEX" ] && marker=">"
+            label="$(printf "%s %-25s [%s]" "$marker" "$name" "$status")"
+            if [ "$i" -eq "$SELECTED_INDEX" ]; then
+                printf "%b║  %b%-38s%b%b║%b\n" "$C_BORDER" "$C_SELECTED" "$label" "$C_RESET" "$C_BORDER" "$C_RESET"
+            else
+                printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "$label" "$C_BORDER" "$C_RESET"
+            fi
+        done
     fi
-    printf "╠════════════════════════════════════════╣\n"
-    printf "║  %-38s║\n" "[1]Open [2]Create [3]Delete [4]Help"
-    printf "║  %-38s║\n" "[n]Toggle WebUI  [q]Quit"
-    printf "╚════════════════════════════════════════╝\n"
-    printf "> "
+    printf "%b╠════════════════════════════════════════╣%b\n" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_ACCENT" "[U]Up [D]Down [L]Left [R]Right" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "[Enter]Open [C]reate [X]Delete" "$C_BORDER" "$C_RESET"
+    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "[T]Style [N]Web [H]elp [Q]uit" "$C_BORDER" "$C_RESET"
+    printf "%b╚════════════════════════════════════════╝%b\n" "$C_BORDER" "$C_RESET"
 }
 
 update_stats_inline() {
@@ -1231,14 +1597,18 @@ update_stats_inline() {
     stats=$(get_stats)
     ansi_save
     ansi_goto "$STATS_ROW"
-    printf "║  %-38s║" "$stats"
+    printf "\033[2K%b║%b  %-38s%b║%b" "$C_BORDER" "$C_TEXT" "$stats" "$C_BORDER" "$C_RESET"
     ansi_restore
 }
 
 dashboard() {
-    local prev_names="" prev_stats="" curr_names curr_stats drawn=0 choice n
+    local prev_names="" prev_stats="" curr_names curr_stats drawn=0 choice n count
     while true; do
-        curr_names=$(list_names | sort | tr '\n' '|')
+        mapfile -t CONSOLES < <(list_names | sort)
+        count=${#CONSOLES[@]}
+        if [ "$count" -eq 0 ]; then SELECTED_INDEX=0;
+        elif [ "$SELECTED_INDEX" -ge "$count" ]; then SELECTED_INDEX=$((count - 1)); fi
+        curr_names=$(printf '%s|' "${CONSOLES[@]}")
         curr_stats=$(get_stats)
         if [ "$curr_names" != "$prev_names" ] || [ "$drawn" -eq 0 ]; then
             draw_full
@@ -1249,17 +1619,30 @@ dashboard() {
             update_stats_inline
             prev_stats="$curr_stats"
         fi
-        if read -t 1 -rp "" choice 2>/dev/null; then
-            printf "\n"
+        if read -t 1 -rsn1 choice 2>/dev/null; then
             case "$choice" in
-                1) read -rp "Name to open: " n; open_console "$n"; drawn=0 ;;
-                2) read -rp "New name: " n; create_console "$n"; sleep 0.4; drawn=0 ;;
-                3) read -rp "Name to delete: " n; delete_console "$n"; sleep 0.4; drawn=0 ;;
-                4) show_help; read -rp "Press enter..."; drawn=0 ;;
-                n|N) webui_toggle; sleep 0.6; drawn=0 ;;
+                u|U|l|L)
+                    [ "$count" -gt 0 ] && SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count))
+                    draw_full ;;
+                d|D|r|R)
+                    [ "$count" -gt 0 ] && SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count))
+                    draw_full ;;
+                ""|$'\n'|$'\r')
+                    if [ "$count" -gt 0 ]; then open_console "${CONSOLES[$SELECTED_INDEX]}"; drawn=0; fi ;;
+                c|C)
+                    printf "\n"; read -rp "New console name: " n
+                    [ -n "$n" ] && create_console "$n"
+                    sleep 0.3; drawn=0 ;;
+                x|X)
+                    if [ "$count" -gt 0 ]; then
+                        printf "\n"; read -rp "Delete '${CONSOLES[$SELECTED_INDEX]}'? [y/N] " n
+                        case "$n" in y|Y|yes|YES) delete_console "${CONSOLES[$SELECTED_INDEX]}" ;; esac
+                    fi
+                    sleep 0.3; drawn=0 ;;
+                t|T) cycle_theme; draw_full ;;
+                n|N) printf "\n"; webui_toggle; sleep 0.5; drawn=0 ;;
+                h|H) ansi_clear; show_help; read -rp "Press Enter to return..."; drawn=0 ;;
                 q|Q|0) ansi_clear; exit 0 ;;
-                "") drawn=0 ;;
-                *) echo "Invalid"; sleep 0.4; drawn=0 ;;
             esac
         fi
     done
@@ -1270,6 +1653,7 @@ case "${1:-}" in
     create) create_console "${2:-}" ;;
     open) open_console "${2:-}" ;;
     delete) delete_console "${2:-}" ;;
+    theme) set_theme_command "${2:-}" ;;
     webui) webui_toggle ;;
     webui-start) webui_start ;;
     webui-stop) webui_stop ;;
@@ -1283,21 +1667,27 @@ MAINEOF
 chmod 700 "$DIR/webui.py"
 chmod +x "$PREFIX/bin/ac"
 
-# Keep the original convenience console and start the fixed Web UI.
-# Call through bash explicitly so installation also works before $PREFIX/bin
-# has been refreshed in the current shell's command cache.
-bash "$PREFIX/bin/ac" create 1
-bash "$PREFIX/bin/ac" webui-start
+# Keep the original convenience console and start the Web UI quietly so the
+# installer remains a clean GUI. Existing live consoles are never recreated.
+if ! bash "$PREFIX/bin/ac" create 1 >> "$INSTALL_LOG" 2>&1; then
+    echo "Console Manager could not create the default console. See $INSTALL_LOG"
+    exit 1
+fi
+if ! bash "$PREFIX/bin/ac" webui-start >> "$INSTALL_LOG" 2>&1; then
+    echo "Console Manager installed, but the Web UI could not start. See $INSTALL_LOG"
+    exit 1
+fi
 
-cat <<EOF
-
-Done — Aurer Console was updated.
-
-  Dashboard:  ac
-  Web UI:     http://localhost:${AC_WEB_PORT:-5000}
-  Stop Web:   ac webui-stop
-  Start Web:  ac webui-start
-
-In the Web UI, tap "Open console". Commands run in that console's real
-shell, old screen output is loaded, and suggestions appear as you type.
-EOF
+ansi_clear
+printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
+printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Installed Console Manager"
+printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+printf "  ✓ Installation complete\n"
+printf "  ✓ Style: %b%s\033[0m (preference saved)\n" "$(theme_ansi "$THEME_ID")" "$(theme_name "$THEME_ID")"
+printf "  ✓ Dependencies installed\n"
+printf "  ✓ Web dashboard started\n\n"
+printf "  Termux dashboard:  ac\n"
+printf "  Web dashboard:     http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
+printf "  Change style:      ac theme\n\n"
+printf "  Dashboard controls: U/D/L/R move, Enter opens, T changes style.\n"
+printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n"
