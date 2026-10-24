@@ -12,6 +12,15 @@ fi
 
 if [ "${AC_SKIP_INSTALL:-0}" != "1" ]; then
     if command -v pkg >/dev/null 2>&1; then
+        # Console Manager never needs curl, but a broken Termux curl/libcurl
+        # installation usually means the package set is out of sync (for
+        # example: missing ngtcp2_crypto_get_path_challenge_data2_cb). Repair
+        # that automatically instead of letting the same linker error return.
+        if command -v curl >/dev/null 2>&1 && ! curl --version >/dev/null 2>&1; then
+            echo "Detected broken curl libraries. Syncing Termux packages to repair them..."
+            pkg update
+            pkg upgrade -y
+        fi
         pkg install -y python screen
     else
         echo "ERROR: pkg was not found. Run this installer inside Termux."
