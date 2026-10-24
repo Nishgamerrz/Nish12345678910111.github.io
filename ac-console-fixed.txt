@@ -1,0 +1,1185 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Aurer Console — fixed Termux installer
+# Run with: bash ac-console-fixed.txt
+# No Python packages or frontend CDNs are required.
+
+set -euo pipefail
+
+if [ -z "${PREFIX:-}" ]; then
+    echo "ERROR: PREFIX is not set. Run this installer inside Termux."
+    exit 1
+fi
+
+if [ "${AC_SKIP_INSTALL:-0}" != "1" ]; then
+    if command -v pkg >/dev/null 2>&1; then
+        pkg install -y python screen
+    else
+        echo "ERROR: pkg was not found. Run this installer inside Termux."
+        exit 1
+    fi
+fi
+
+command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required."; exit 1; }
+command -v screen >/dev/null 2>&1 || { echo "ERROR: screen is required."; exit 1; }
+
+DIR="$HOME/.ac-consoles"
+mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$HOME/.screen"
+chmod 700 "$HOME/.screen" "$DIR" "$DIR/output" "$DIR/history"
+
+# Stop only the old Web UI process. Existing screen consoles are left alone.
+if [ -f "$DIR/webui.pid" ]; then
+    old_pid="$(cat "$DIR/webui.pid" 2>/dev/null || true)"
+    if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
+        kill "$old_pid" 2>/dev/null || true
+        sleep 0.3
+    fi
+    rm -f "$DIR/webui.pid"
+fi
+
+cat > "$DIR/webui.py" <<'PYEOF'
+#!/usr/bin/env python3
+"""Aurer Console Web UI.
+
+The browser talks to the SAME interactive bash inside each screen session.
+It does not run one-off shell commands, so cwd, environment and shell state are
+preserved. screen hardcopy restores existing commands and output, including
+commands entered from Termux before the web console was opened.
+"""
+
+import http.server
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+import traceback
+import urllib.parse
+from pathlib import Path
+
+SESSION_PREFIX = "ac_"
+BASE_DIR = Path(os.environ.get("AC_CONSOLE_DIR", str(Path.home() / ".ac-consoles")))
+SCREENRC = BASE_DIR / "screenrc"
+OUTPUT_DIR = BASE_DIR / "output"
+HISTORY_DIR = BASE_DIR / "history"
+SCREEN_DIR = Path(os.environ.get("SCREENDIR", str(Path.home() / ".screen")))
+WEB_HOST = os.environ.get("AC_WEB_HOST", "127.0.0.1")
+WEB_PORT = int(os.environ.get("AC_WEB_PORT", "5000"))
+MAX_BODY_BYTES = 64 * 1024
+MAX_COMMAND_CHARS = 4000
+MAX_OUTPUT_CHARS = 250000
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+SCREEN_LINE_RE = re.compile(r"^\s*(\d+)\.ac_([A-Za-z0-9][A-Za-z0-9_-]{0,31})(?:\s|\()")
+COMMAND_CACHE = {"at": 0.0, "commands": []}
+COMMAND_CACHE_LOCK = threading.Lock()
+HISTORY_LOCK = threading.Lock()
+
+for directory in (BASE_DIR, OUTPUT_DIR, HISTORY_DIR, SCREEN_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+try:
+    SCREEN_DIR.chmod(0o700)
+except OSError:
+    pass
+
+SCREEN_ENV = os.environ.copy()
+SCREEN_ENV["SCREENDIR"] = str(SCREEN_DIR)
+
+DEFAULT_SCREENRC = """startup_message off
+defscrollback 10000
+maptimeout 400
+bindkey \"qq\" detach
+hardstatus alwayslastline
+hardstatus string \"[ %S ] == tap q q quickly to return to dashboard ==\"
+"""
+
+HTML = r'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#080d17">
+<title>Aurer Console</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #080d17;
+  --panel: rgba(17, 25, 40, .92);
+  --panel-2: #111a2a;
+  --line: #243249;
+  --text: #edf4ff;
+  --muted: #8e9db5;
+  --blue: #67a6ff;
+  --blue-2: #377df3;
+  --green: #54d69a;
+  --red: #ff7381;
+  --shadow: 0 18px 55px rgba(0,0,0,.32);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% -10%, rgba(55,125,243,.18), transparent 38rem),
+    radial-gradient(circle at 100% 10%, rgba(84,214,154,.07), transparent 30rem),
+    var(--bg);
+  color: var(--text);
+  font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+button, input { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+.app { width: min(1080px, 100%); margin: 0 auto; padding: 26px 20px 40px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.logo {
+  width: 42px; height: 42px; flex: 0 0 auto; display: grid; place-items: center;
+  border: 1px solid #36517b; border-radius: 12px;
+  background: linear-gradient(145deg, #1d3558, #101b2c);
+  color: #9ec4ff; font: 700 17px/1 ui-monospace, monospace; box-shadow: var(--shadow);
+}
+h1, h2, p { margin: 0; }
+h1 { font-size: 18px; letter-spacing: -.02em; }
+.subtitle { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.status-pill, .mini-badge {
+  display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line);
+  border-radius: 999px; color: var(--muted); background: rgba(13,21,34,.75);
+  padding: 6px 10px; font-size: 12px; white-space: nowrap;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px rgba(84,214,154,.7); }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat, .panel, .terminal-window {
+  border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+.stat { padding: 15px 17px; border-radius: 14px; min-width: 0; }
+.stat-label { color: var(--muted); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.stat-value { margin-top: 6px; font: 600 16px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.panel { border-radius: 16px; overflow: hidden; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 18px; border-bottom: 1px solid var(--line); }
+.panel-head h2 { font-size: 15px; }
+.create-row { display: flex; gap: 8px; width: min(410px, 58%); }
+input {
+  min-width: 0; width: 100%; border: 1px solid #2b3b55; border-radius: 10px;
+  outline: none; background: #0a1220; color: var(--text); padding: 10px 12px;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus { border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(55,125,243,.14); }
+input::placeholder { color: #65758e; }
+.btn {
+  border: 1px solid #30415e; border-radius: 10px; background: #18243a; color: var(--text);
+  padding: 9px 13px; cursor: pointer; white-space: nowrap; transition: transform .12s, background .12s, border-color .12s;
+}
+.btn:hover { background: #20304b; border-color: #425b81; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.btn:disabled { opacity: .5; cursor: wait; }
+.btn-primary { background: var(--blue-2); border-color: #5592f6; color: white; font-weight: 600; }
+.btn-primary:hover { background: #2f72df; }
+.btn-danger { color: #ff9aa5; background: rgba(105,28,40,.16); border-color: #51313f; }
+.btn-danger:hover { background: rgba(130,34,48,.3); border-color: #78404f; }
+.btn-ghost { background: transparent; }
+.console-list { padding: 8px 18px 18px; }
+.console-card {
+  display: flex; align-items: center; gap: 13px; padding: 15px 2px;
+  border-bottom: 1px solid rgba(36,50,73,.75);
+}
+.console-card:last-child { border-bottom: 0; }
+.console-glyph {
+  width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto;
+  border-radius: 10px; background: rgba(55,125,243,.11); color: var(--blue);
+  font: 700 13px ui-monospace, monospace;
+}
+.console-meta { flex: 1; min-width: 0; }
+.console-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+.console-state { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.card-actions { display: flex; gap: 8px; }
+.empty { padding: 42px 16px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--text); margin-bottom: 5px; }
+.error-banner { margin: 12px 18px 0; padding: 10px 12px; border: 1px solid #603643; border-radius: 10px; background: rgba(100,25,40,.18); color: #ffb0b9; }
+.console-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.console-heading h2 { font-size: 18px; overflow-wrap: anywhere; }
+.terminal-window { border-radius: 16px; overflow: hidden; }
+.terminal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: #101929; border-bottom: 1px solid var(--line); }
+.terminal-title { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+.terminal-title .lights { color: #53647e; letter-spacing: 4px; }
+.terminal-output {
+  height: min(58vh, 590px); min-height: 300px; margin: 0; padding: 17px;
+  overflow: auto; overscroll-behavior: contain; background: #070c14; color: #d5e5f8;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; user-select: text;
+}
+.command-dock { position: relative; padding: 13px; background: #101929; border-top: 1px solid var(--line); }
+.command-form { display: flex; gap: 9px; }
+.command-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.command-hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+.suggestions {
+  position: absolute; z-index: 5; left: 13px; right: 13px; bottom: calc(100% - 3px);
+  max-height: 250px; overflow: auto; padding: 6px; border: 1px solid #355076;
+  border-radius: 12px; background: #111c2e; box-shadow: 0 16px 45px rgba(0,0,0,.5);
+}
+.suggestion-label { padding: 5px 8px; color: var(--muted); font-size: 11px; }
+.suggestion {
+  display: block; width: 100%; padding: 8px; border: 0; border-radius: 7px;
+  background: transparent; color: #dbe9fb; text-align: left; cursor: pointer;
+  font: 12px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis;
+}
+.suggestion:hover, .suggestion.active { background: #203451; color: white; }
+.toast {
+  position: fixed; z-index: 20; left: 50%; bottom: 22px; transform: translate(-50%, 20px);
+  max-width: calc(100% - 32px); padding: 10px 14px; border: 1px solid #355076;
+  border-radius: 10px; background: #14233a; color: var(--text); box-shadow: var(--shadow);
+  opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.error { border-color: #75404e; background: #351c28; color: #ffc0c7; }
+@media (max-width: 640px) {
+  .app { padding: 18px 12px 28px; }
+  .topbar { margin-bottom: 18px; }
+  .status-pill { padding: 6px 8px; }
+  .status-pill .status-copy { display: none; }
+  .stats-grid { grid-template-columns: 1fr; gap: 8px; }
+  .stat { padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .stat-value { margin: 0; font-size: 13px; text-align: right; }
+  .panel-head { align-items: stretch; flex-direction: column; }
+  .create-row { width: 100%; }
+  .console-list { padding-left: 14px; padding-right: 14px; }
+  .console-card { flex-wrap: wrap; }
+  .console-meta { min-width: 120px; }
+  .card-actions { width: 100%; padding-left: 49px; }
+  .card-actions .btn-primary { flex: 1; }
+  .terminal-output { height: 55vh; min-height: 260px; padding: 13px; font-size: 12px; }
+  .command-form .btn { padding-left: 15px; padding-right: 15px; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">&gt;_</div>
+      <div><h1>Aurer Console</h1><p class="subtitle">Your Termux screens, in one clean dashboard</p></div>
+    </div>
+    <div class="status-pill"><span class="status-dot"></span><span class="status-copy">Web UI online</span><span id="consoleCount">0</span></div>
+  </header>
+
+  <section id="dashboardView">
+    <div class="stats-grid">
+      <div class="stat"><div class="stat-label">System load</div><div class="stat-value" id="loadStat">—</div></div>
+      <div class="stat"><div class="stat-label">Memory</div><div class="stat-value" id="memoryStat">—</div></div>
+      <div class="stat"><div class="stat-label">Storage</div><div class="stat-value" id="diskStat">—</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Consoles</h2>
+        <form class="create-row" id="createForm">
+          <input id="newName" maxlength="32" autocomplete="off" placeholder="New console name" aria-label="New console name">
+          <button class="btn btn-primary" type="submit">+ Create</button>
+        </form>
+      </div>
+      <div class="error-banner" id="dashboardError" hidden></div>
+      <div class="console-list" id="consoleList"><div class="empty">Loading consoles…</div></div>
+    </div>
+  </section>
+
+  <section id="consoleView" hidden>
+    <div class="console-heading">
+      <button class="btn btn-ghost" id="backButton" type="button">← Back</button>
+      <h2 id="activeName">Console</h2>
+      <span class="mini-badge"><span class="status-dot"></span>Live screen</span>
+    </div>
+    <div class="terminal-window">
+      <div class="terminal-bar">
+        <div class="terminal-title"><span class="lights" aria-hidden="true">●●●</span><span>Real bash output · scrollback restored</span></div>
+        <button class="btn btn-ghost" id="refreshOutput" type="button">Refresh</button>
+      </div>
+      <pre class="terminal-output" id="terminalOutput" tabindex="0">Loading console output…</pre>
+      <div class="command-dock">
+        <div class="suggestions" id="suggestions" hidden></div>
+        <form class="command-form" id="commandForm">
+          <input class="command-input" id="commandInput" maxlength="4000" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type a command for this console…" aria-label="Command">
+          <button class="btn btn-primary" id="runButton" type="submit">Run</button>
+        </form>
+        <p class="command-hint">Enter runs in the real console · Tab completes a suggestion · Arrow keys choose · long commands keep streaming here</p>
+      </div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+const byId = id => document.getElementById(id);
+const state = {
+  consoles: [], active: null, output: '', outputBusy: false,
+  suggestions: [], suggestionIndex: -1, suggestTimer: null, toastTimer: null
+};
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { cache: 'no-store', ...options });
+  let data;
+  try { data = await response.json(); }
+  catch { throw new Error('The Web UI returned an invalid response.'); }
+  if (!response.ok || data.ok === false) throw new Error(data.error || `Request failed (${response.status})`);
+  return data;
+}
+function jsonOptions(body) {
+  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+function notify(message, isError = false) {
+  const el = byId('toast');
+  el.textContent = message;
+  el.classList.toggle('error', isError);
+  el.classList.add('show');
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function renderStats(stats) {
+  byId('loadStat').textContent = stats.load || 'N/A';
+  byId('memoryStat').textContent = stats.memory.total ? `${stats.memory.used}/${stats.memory.total} MB · ${stats.memory.percent}%` : 'N/A';
+  byId('diskStat').textContent = stats.disk.total ? `${stats.disk.used}/${stats.disk.total} · ${stats.disk.percent}` : 'N/A';
+}
+function makeButton(label, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = `btn ${className}`; button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+function renderConsoles() {
+  const list = byId('consoleList');
+  list.replaceChildren();
+  byId('consoleCount').textContent = String(state.consoles.length);
+  if (!state.consoles.length) {
+    const empty = document.createElement('div'); empty.className = 'empty';
+    const strong = document.createElement('strong'); strong.textContent = 'No consoles running';
+    empty.append(strong, document.createTextNode('Create one above to open a real Termux shell.'));
+    list.append(empty); return;
+  }
+  for (const consoleInfo of state.consoles) {
+    const card = document.createElement('article'); card.className = 'console-card';
+    const glyph = document.createElement('div'); glyph.className = 'console-glyph'; glyph.textContent = '>_';
+    const meta = document.createElement('div'); meta.className = 'console-meta';
+    const name = document.createElement('div'); name.className = 'console-name'; name.textContent = consoleInfo.name;
+    const sub = document.createElement('div'); sub.className = 'console-state';
+    sub.textContent = consoleInfo.attached ? 'Screen attached · output available' : 'Screen detached · output available';
+    meta.append(name, sub);
+    const actions = document.createElement('div'); actions.className = 'card-actions';
+    actions.append(
+      makeButton('Open console', 'btn-primary', () => openConsole(consoleInfo.name)),
+      makeButton('Delete', 'btn-danger', () => deleteConsole(consoleInfo.name))
+    );
+    card.append(glyph, meta, actions); list.append(card);
+  }
+}
+async function refreshDashboard(showErrors = false) {
+  if (state.active) return;
+  try {
+    const data = await api('/api/state');
+    state.consoles = data.consoles; renderStats(data.stats); renderConsoles();
+    byId('dashboardError').hidden = true;
+  } catch (error) {
+    if (showErrors || !state.consoles.length) {
+      const banner = byId('dashboardError'); banner.textContent = error.message; banner.hidden = false;
+    }
+  }
+}
+async function createConsole(event) {
+  event.preventDefault();
+  const input = byId('newName'); const name = input.value.trim();
+  if (!name) return;
+  try {
+    await api('/api/create', jsonOptions({ name }));
+    input.value = ''; notify(`Console “${name}” created.`); await refreshDashboard(true);
+  } catch (error) { notify(error.message, true); }
+}
+async function deleteConsole(name) {
+  if (!window.confirm(`Delete console “${name}”? Its screen session will be closed.`)) return;
+  try {
+    await api('/api/delete', jsonOptions({ name }));
+    notify(`Console “${name}” deleted.`); await refreshDashboard(true);
+  } catch (error) { notify(error.message, true); }
+}
+async function openConsole(name) {
+  state.active = name; state.output = ''; hideSuggestions();
+  byId('dashboardView').hidden = true; byId('consoleView').hidden = false;
+  byId('activeName').textContent = name;
+  byId('terminalOutput').textContent = 'Loading console output…';
+  history.replaceState(null, '', `#${encodeURIComponent(name)}`);
+  await loadOutput(true);
+  byId('commandInput').focus();
+}
+function closeConsole() {
+  state.active = null; state.output = ''; hideSuggestions();
+  byId('consoleView').hidden = true; byId('dashboardView').hidden = false;
+  history.replaceState(null, '', location.pathname);
+  refreshDashboard(true);
+}
+async function loadOutput(forceScroll = false) {
+  const name = state.active;
+  if (!name || state.outputBusy) return;
+  state.outputBusy = true;
+  try {
+    const data = await api(`/api/output?name=${encodeURIComponent(name)}`);
+    if (state.active !== name) return;
+    if (data.output !== state.output || forceScroll) {
+      const terminal = byId('terminalOutput');
+      const nearBottom = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 90;
+      state.output = data.output;
+      terminal.textContent = data.output || '(No output in this console yet.)';
+      if (forceScroll || nearBottom) terminal.scrollTop = terminal.scrollHeight;
+    }
+  } catch (error) {
+    if (state.active === name) notify(error.message, true);
+  } finally { state.outputBusy = false; }
+}
+async function executeCommand(event) {
+  event.preventDefault();
+  const input = byId('commandInput'); const command = input.value;
+  if (!command.trim() || !state.active) return;
+  hideSuggestions();
+  const button = byId('runButton'); button.disabled = true;
+  try {
+    await api('/api/execute', jsonOptions({ name: state.active, command }));
+    input.value = '';
+    setTimeout(() => loadOutput(), 250);
+  } catch (error) { notify(error.message, true); }
+  finally { button.disabled = false; input.focus(); }
+}
+function hideSuggestions() {
+  state.suggestions = []; state.suggestionIndex = -1;
+  byId('suggestions').hidden = true; byId('suggestions').replaceChildren();
+}
+function acceptSuggestion(index) {
+  if (!state.suggestions.length) return;
+  const selected = state.suggestions[Math.max(0, Math.min(index, state.suggestions.length - 1))];
+  byId('commandInput').value = selected; hideSuggestions(); byId('commandInput').focus();
+}
+function renderSuggestions() {
+  const box = byId('suggestions'); box.replaceChildren();
+  if (!state.suggestions.length) { box.hidden = true; return; }
+  const label = document.createElement('div'); label.className = 'suggestion-label'; label.textContent = 'Did you mean… (Tab completes)'; box.append(label);
+  state.suggestions.forEach((suggestion, index) => {
+    const item = document.createElement('button'); item.type = 'button';
+    item.className = `suggestion${index === state.suggestionIndex ? ' active' : ''}`;
+    item.textContent = suggestion;
+    item.addEventListener('mousedown', event => event.preventDefault());
+    item.addEventListener('click', () => acceptSuggestion(index)); box.append(item);
+  });
+  box.hidden = false;
+}
+function queueSuggestions() {
+  clearTimeout(state.suggestTimer);
+  const query = byId('commandInput').value.trim();
+  if (!query || query.length > 80 || /\s/.test(query) || !state.active) { hideSuggestions(); return; }
+  const consoleName = state.active;
+  state.suggestTimer = setTimeout(async () => {
+    try {
+      const data = await api(`/api/suggest?name=${encodeURIComponent(consoleName)}&q=${encodeURIComponent(query)}`);
+      if (state.active !== consoleName || byId('commandInput').value.trim() !== query || document.activeElement !== byId('commandInput')) return;
+      state.suggestions = data.suggestions; state.suggestionIndex = -1; renderSuggestions();
+    } catch { hideSuggestions(); }
+  }, 120);
+}
+function commandKeys(event) {
+  if (event.key === 'Escape') { hideSuggestions(); return; }
+  if (!state.suggestions.length) return;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (state.suggestionIndex < 0) state.suggestionIndex = event.key === 'ArrowDown' ? 0 : state.suggestions.length - 1;
+    else {
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      state.suggestionIndex = (state.suggestionIndex + direction + state.suggestions.length) % state.suggestions.length;
+    }
+    renderSuggestions();
+  } else if (event.key === 'Tab') {
+    event.preventDefault(); acceptSuggestion(state.suggestionIndex < 0 ? 0 : state.suggestionIndex);
+  } else if (event.key === 'Enter' && state.suggestionIndex >= 0) {
+    event.preventDefault(); acceptSuggestion(state.suggestionIndex);
+  }
+}
+
+byId('createForm').addEventListener('submit', createConsole);
+byId('commandForm').addEventListener('submit', executeCommand);
+byId('commandInput').addEventListener('input', queueSuggestions);
+byId('commandInput').addEventListener('keydown', commandKeys);
+byId('commandInput').addEventListener('blur', () => setTimeout(hideSuggestions, 120));
+byId('backButton').addEventListener('click', closeConsole);
+byId('refreshOutput').addEventListener('click', () => loadOutput(true));
+setInterval(() => { if (!document.hidden && state.active) loadOutput(); }, 1200);
+setInterval(() => { if (!document.hidden && !state.active) refreshDashboard(); }, 3500);
+
+(async function start() {
+  await refreshDashboard(true);
+  if (!location.hash) return;
+  try {
+    const name = decodeURIComponent(location.hash.slice(1));
+    if (state.consoles.some(item => item.name === name)) await openConsole(name);
+  } catch { history.replaceState(null, '', location.pathname); }
+})();
+</script>
+</body>
+</html>'''
+
+
+class ApiError(Exception):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def validate_name(name):
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+        raise ApiError("Use 1–32 letters, numbers, underscores or hyphens; start with a letter or number.")
+    return name
+
+
+def session_name(name):
+    return SESSION_PREFIX + validate_name(name)
+
+
+def run_screen(args, timeout=6):
+    return subprocess.run(
+        ["screen", *args],
+        env=SCREEN_ENV,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=timeout,
+    )
+
+
+def list_consoles():
+    result = run_screen(["-ls"])
+    consoles = []
+    seen = set()
+    for line in result.stdout.splitlines():
+        match = SCREEN_LINE_RE.match(line)
+        if not match:
+            continue
+        pid, name = match.groups()
+        if name in seen:
+            continue
+        seen.add(name)
+        consoles.append({
+            "name": name,
+            "session": SESSION_PREFIX + name,
+            "pid": int(pid),
+            "attached": "(Attached)" in line and "(Detached)" not in line,
+        })
+    consoles.sort(key=lambda item: item["name"].lower())
+    return consoles
+
+
+def console_exists(name):
+    return any(item["name"] == name for item in list_consoles())
+
+
+def ensure_screenrc():
+    if not SCREENRC.exists():
+        SCREENRC.write_text(DEFAULT_SCREENRC, encoding="utf-8")
+
+
+def create_console(name):
+    session = session_name(name)
+    if console_exists(name):
+        raise ApiError("That console already exists.", 409)
+    ensure_screenrc()
+    bash = shutil.which("bash") or "/data/data/com.termux/files/usr/bin/bash"
+    history_file = HISTORY_DIR / (name + ".bash_history")
+    env = SCREEN_ENV.copy()
+    env["HISTFILE"] = str(history_file)
+    env["HISTSIZE"] = "10000"
+    env["HISTFILESIZE"] = "20000"
+    env["AC_CONSOLE_NAME"] = name
+    result = subprocess.run(
+        ["screen", "-c", str(SCREENRC), "-dmS", session, bash],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=6,
+    )
+    if result.returncode != 0:
+        raise ApiError("screen could not create the console; check the Web UI log.", 500)
+    for _ in range(20):
+        if console_exists(name):
+            return
+        time.sleep(0.1)
+    raise ApiError("The console was started but did not appear in screen -ls.", 500)
+
+
+def delete_console(name):
+    session = session_name(name)
+    if not console_exists(name):
+        raise ApiError("Console not found.", 404)
+    result = run_screen(["-S", session, "-X", "quit"])
+    if result.returncode != 0 and console_exists(name):
+        raise ApiError("Could not delete the console: " + (result.stderr.strip() or "screen error"), 500)
+
+
+def clean_hardcopy(raw):
+    text = ANSI_RE.sub("", raw).replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in text.split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    text = "\n".join(lines)
+    truncated = len(text) > MAX_OUTPUT_CHARS
+    if truncated:
+        text = "… older output truncated by the Web UI …\n" + text[-MAX_OUTPUT_CHARS:]
+    return text, truncated
+
+
+def read_output(name):
+    session = session_name(name)
+    fd, path_string = tempfile.mkstemp(prefix=name + "-", suffix=".hardcopy", dir=str(OUTPUT_DIR))
+    os.close(fd)
+    path = Path(path_string)
+    try:
+        # screen expects to create the hardcopy itself.
+        path.unlink()
+        result = run_screen(["-S", session, "-X", "hardcopy", "-h", str(path)])
+        if result.returncode != 0 or not path.exists():
+            detail = (result.stderr or result.stdout).strip()
+            raise ApiError("Console not found or its output is unavailable." + (" " + detail if detail else ""), 404)
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text, truncated = clean_hardcopy(raw)
+        return {"output": text, "truncated": truncated}
+    finally:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def remember_command(name, command):
+    # Commands entered through the Web UI also become completion suggestions.
+    # The full output/history still comes from the real screen scrollback.
+    path = HISTORY_DIR / (name + ".web_history")
+    with HISTORY_LOCK:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(command.replace("\n", " ") + "\n")
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if len(lines) > 300:
+                path.write_text("\n".join(lines[-200:]) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+def execute_command(name, command):
+    session = session_name(name)
+    if not isinstance(command, str) or not command.strip():
+        raise ApiError("Enter a command first.")
+    if len(command) > MAX_COMMAND_CHARS:
+        raise ApiError("Command is too long (4000 characters maximum).")
+    if "\x00" in command or "\n" in command or "\r" in command:
+        raise ApiError("Enter one command line at a time.")
+    if not console_exists(name):
+        raise ApiError("Console not found.", 404)
+    # No shell=True here: the command is pasted into the existing interactive
+    # shell, exactly as if it was typed in Termux. This also preserves Termux's
+    # own command-not-found / "did you mean" output.
+    result = run_screen(["-S", session, "-X", "stuff", command + "\n"])
+    if result.returncode != 0:
+        raise ApiError("Could not send the command: " + (result.stderr.strip() or "screen error"), 500)
+    remember_command(name, command)
+
+
+def recent_web_history(name):
+    path = HISTORY_DIR / (name + ".web_history")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    return list(reversed(lines[-150:]))
+
+
+def available_commands():
+    now = time.monotonic()
+    with COMMAND_CACHE_LOCK:
+        if now - COMMAND_CACHE["at"] < 60 and COMMAND_CACHE["commands"]:
+            return COMMAND_CACHE["commands"]
+    commands = {
+        "alias", "bg", "break", "cd", "clear", "continue", "declare", "dirs",
+        "disown", "echo", "eval", "exec", "exit", "export", "fg", "help",
+        "history", "jobs", "kill", "popd", "printf", "pushd", "pwd", "read",
+        "readonly", "set", "shift", "source", "test", "times", "trap", "type",
+        "typeset", "ulimit", "umask", "unalias", "unset", "wait",
+    }
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        if not folder:
+            continue
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_file() and os.access(entry.path, os.X_OK):
+                            commands.add(entry.name)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    result = sorted(commands)
+    with COMMAND_CACHE_LOCK:
+        COMMAND_CACHE["at"] = now
+        COMMAND_CACHE["commands"] = result
+    return result
+
+
+def suggest_commands(name, query):
+    validate_name(name)
+    if not query or len(query) > 80:
+        return []
+    lowered = query.lower()
+    suggestions = []
+    seen = set()
+    for command in recent_web_history(name) + available_commands():
+        if command.lower().startswith(lowered) and command not in seen:
+            suggestions.append(command)
+            seen.add(command)
+        if len(suggestions) >= 12:
+            break
+    return suggestions
+
+
+def get_stats():
+    memory = {"used": 0, "total": 0, "percent": 0}
+    try:
+        values = {}
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0].endswith(":"):
+                    values[parts[0][:-1]] = int(parts[1])
+        total = values.get("MemTotal", 0) // 1024
+        available = values.get("MemAvailable")
+        if available is None:
+            available = values.get("MemFree", 0) + values.get("Buffers", 0) + values.get("Cached", 0)
+        free = available // 1024
+        used = max(0, total - free)
+        memory = {"used": used, "total": total, "percent": round(used * 100 / total) if total else 0}
+    except (OSError, ValueError):
+        pass
+    try:
+        with open("/proc/loadavg", encoding="utf-8") as handle:
+            load = " ".join(handle.read().split()[:3])
+    except OSError:
+        load = "N/A"
+    disk = {"used": "", "total": "", "percent": ""}
+    try:
+        usage = shutil.disk_usage(str(Path.home()))
+        disk = {
+            "used": format_bytes(usage.used),
+            "total": format_bytes(usage.total),
+            "percent": str(round(usage.used * 100 / usage.total)) + "%" if usage.total else "0%",
+        }
+    except OSError:
+        pass
+    return {"load": load, "memory": memory, "disk": disk}
+
+
+def format_bytes(value):
+    value = float(value)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= 1024
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    server_version = "AurerConsole/2.0"
+    sys_version = ""
+
+    # Never write HTTP access logs to the terminal running the ac dashboard.
+    def log_message(self, *args):
+        return
+
+    def common_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'")
+
+    def send_json(self, data, code=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.common_headers()
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_html(self):
+        body = HTML.encode("utf-8")
+        self.send_response(200)
+        self.common_headers()
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_body(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise ApiError("Invalid Content-Length.")
+        if length < 0 or length > MAX_BODY_BYTES:
+            raise ApiError("Request body is too large.", 413)
+        if not length:
+            return {}
+        try:
+            data = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ApiError("Invalid JSON request.")
+        if not isinstance(data, dict):
+            raise ApiError("JSON body must be an object.")
+        return data
+
+    def handle_exception(self, error):
+        if isinstance(error, ApiError):
+            self.send_json({"ok": False, "error": error.message}, error.status)
+        elif isinstance(error, subprocess.TimeoutExpired):
+            self.send_json({"ok": False, "error": "A screen operation timed out. Try again."}, 504)
+        elif isinstance(error, (BrokenPipeError, ConnectionResetError)):
+            return
+        else:
+            # This goes to webui.log because webui_start redirects both stdout
+            # and stderr there. It can never draw over the interactive dashboard.
+            traceback.print_exc()
+            self.send_json({"ok": False, "error": "Internal Web UI error; see ~/.ac-consoles/webui.log."}, 500)
+
+    def do_GET(self):
+        try:
+            parsed = urllib.parse.urlsplit(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            if parsed.path in ("/", "/index.html"):
+                self.send_html()
+            elif parsed.path == "/api/state":
+                self.send_json({"ok": True, "consoles": list_consoles(), "stats": get_stats()})
+            elif parsed.path == "/api/output":
+                name = validate_name(query.get("name", [""])[0])
+                data = read_output(name)
+                self.send_json({"ok": True, "name": name, **data})
+            elif parsed.path == "/api/suggest":
+                name = query.get("name", [""])[0]
+                q = query.get("q", [""])[0]
+                self.send_json({"ok": True, "suggestions": suggest_commands(name, q)})
+            else:
+                self.send_json({"ok": False, "error": "Not found."}, 404)
+        except Exception as error:
+            self.handle_exception(error)
+
+    def do_POST(self):
+        try:
+            path = urllib.parse.urlsplit(self.path).path
+            body = self.read_body()
+            if path == "/api/create":
+                name = validate_name(body.get("name", ""))
+                create_console(name)
+                self.send_json({"ok": True, "name": name})
+            elif path == "/api/delete":
+                name = validate_name(body.get("name", ""))
+                delete_console(name)
+                self.send_json({"ok": True})
+            elif path == "/api/execute":
+                name = validate_name(body.get("name", ""))
+                execute_command(name, body.get("command", ""))
+                self.send_json({"ok": True})
+            else:
+                self.send_json({"ok": False, "error": "Not found."}, 404)
+        except Exception as error:
+            self.handle_exception(error)
+
+
+class Server(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+if __name__ == "__main__":
+    ensure_screenrc()
+    server = Server((WEB_HOST, WEB_PORT), Handler)
+    print(f"Aurer Web UI listening on http://{WEB_HOST}:{WEB_PORT}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+PYEOF
+
+cat > "$PREFIX/bin/ac" <<'MAINEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+SESSION_PREFIX="ac_"
+DIR="$HOME/.ac-consoles"
+RC="$DIR/screenrc"
+WEBUI_PY="$DIR/webui.py"
+WEBUI_PID_FILE="$DIR/webui.pid"
+WEBUI_LOG="$DIR/webui.log"
+WEB_HOST="${AC_WEB_HOST:-127.0.0.1}"
+WEB_PORT="${AC_WEB_PORT:-5000}"
+export SCREENDIR="$HOME/.screen"
+mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$SCREENDIR"
+chmod 700 "$SCREENDIR" "$DIR" "$DIR/output" "$DIR/history"
+
+auto_install() {
+    local missing=()
+    command -v screen >/dev/null 2>&1 || missing+=(screen)
+    command -v python3 >/dev/null 2>&1 || missing+=(python)
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "Installing: ${missing[*]}"
+        pkg install -y "${missing[@]}" || return 1
+    fi
+}
+auto_install || exit 1
+
+cat > "$RC" <<'RCEOF'
+startup_message off
+defscrollback 10000
+maptimeout 400
+bindkey "qq" detach
+hardstatus alwayslastline
+hardstatus string "[ %S ] == tap q q quickly to return to dashboard =="
+RCEOF
+
+ansi_clear()      { printf "\033[H\033[2J"; }
+ansi_goto()       { printf "\033[%d;1H" "$1"; }
+ansi_save()       { printf "\033[s"; }
+ansi_restore()    { printf "\033[u"; }
+
+webui_pid() {
+    local pid=""
+    [ -f "$WEBUI_PID_FILE" ] && pid="$(cat "$WEBUI_PID_FILE" 2>/dev/null)"
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    printf "%s\n" "$pid"
+}
+
+webui_running() {
+    local pid
+    pid="$(webui_pid)" || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+webui_start() {
+    if webui_running; then
+        echo "Web UI is already running at http://localhost:$WEB_PORT"
+        return 0
+    fi
+    rm -f "$WEBUI_PID_FILE"
+    [ -f "$WEBUI_PY" ] || { echo "ERROR: Web UI files are missing; rerun ac-console-fixed.txt."; return 1; }
+
+    # Fully detach stdin/stdout/stderr. This is the fix for HTTP/Python log
+    # lines appearing over the ac dashboard: the daemon has no terminal to
+    # write to, and BaseHTTPRequestHandler.log_message is disabled as well.
+    if command -v setsid >/dev/null 2>&1; then
+        nohup setsid env AC_CONSOLE_DIR="$DIR" SCREENDIR="$SCREENDIR" \
+            AC_WEB_HOST="$WEB_HOST" AC_WEB_PORT="$WEB_PORT" \
+            python3 "$WEBUI_PY" </dev/null >>"$WEBUI_LOG" 2>&1 &
+    else
+        nohup env AC_CONSOLE_DIR="$DIR" SCREENDIR="$SCREENDIR" \
+            AC_WEB_HOST="$WEB_HOST" AC_WEB_PORT="$WEB_PORT" \
+            python3 "$WEBUI_PY" </dev/null >>"$WEBUI_LOG" 2>&1 &
+    fi
+    local pid=$!
+    echo "$pid" > "$WEBUI_PID_FILE"
+    sleep 0.8
+    if webui_running; then
+        echo "Web UI started: http://localhost:$WEB_PORT"
+        echo "Logs stay in $WEBUI_LOG (not on the dashboard)."
+    else
+        rm -f "$WEBUI_PID_FILE"
+        echo "ERROR: Web UI failed to start. Check $WEBUI_LOG"
+        return 1
+    fi
+}
+
+webui_stop() {
+    local pid
+    if webui_running; then
+        pid="$(webui_pid)"
+        kill "$pid" 2>/dev/null
+        sleep 0.3
+        kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
+        rm -f "$WEBUI_PID_FILE"
+        echo "Web UI stopped."
+    else
+        rm -f "$WEBUI_PID_FILE"
+        echo "Web UI is not running."
+    fi
+}
+
+webui_toggle() { webui_running && webui_stop || webui_start; }
+webui_status() { webui_running && printf "Web:ON :%s" "$WEB_PORT" || printf "Web:OFF"; }
+
+list_names() {
+    screen -ls 2>/dev/null | sed -n "s/^[[:space:]]*[0-9]*\.${SESSION_PREFIX}\([A-Za-z0-9][A-Za-z0-9_-]*\).*/\1/p"
+}
+exists() { list_names | grep -qx "$1"; }
+valid_name() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$ ]]; }
+
+create_console() {
+    local name="$1"
+    [ -n "$name" ] || { echo "Usage: ac create <name>"; return 1; }
+    valid_name "$name" || { echo "Use 1-32 letters, numbers, _ or -; start with a letter or number."; return 1; }
+    if exists "$name"; then echo "Console '$name' already exists."; return 0; fi
+    screen -c "$RC" -dmS "${SESSION_PREFIX}${name}" bash
+    sleep 0.4
+    exists "$name" && echo "Console '$name' created." || { echo "ERROR: failed to create console."; return 1; }
+}
+
+open_console() {
+    local name="$1"
+    [ -n "$name" ] || { echo "Usage: ac open <name>"; return 1; }
+    exists "$name" || { echo "Console '$name' not found."; return 1; }
+    screen -S "${SESSION_PREFIX}${name}" -X bindkey "qq" detach 2>/dev/null
+    screen -r "${SESSION_PREFIX}${name}"
+}
+
+delete_console() {
+    local name="$1"
+    [ -n "$name" ] || { echo "Usage: ac delete <name>"; return 1; }
+    exists "$name" || { echo "Console '$name' not found."; return 1; }
+    screen -S "${SESSION_PREFIX}${name}" -X quit
+    echo "Console '$name' deleted."
+}
+
+get_stats() {
+    local mem_used mem_total mem_pct disk load web
+    mem_used=$(free -m 2>/dev/null | awk '/Mem:/{print $3}')
+    mem_total=$(free -m 2>/dev/null | awk '/Mem:/{print $2}')
+    if [ -n "$mem_used" ] && [ -n "$mem_total" ] && [ "$mem_total" -gt 0 ] 2>/dev/null; then
+        mem_pct=$(awk "BEGIN{printf \"%d\", $mem_used*100/$mem_total}")
+    else
+        mem_pct="?"
+    fi
+    disk=$(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $3"/"$2" "$5}')
+    load=$(awk '{print $1" "$2" "$3}' /proc/loadavg 2>/dev/null || echo "N/A")
+    web=$(webui_status)
+    echo "Load:$load RAM:${mem_used:-?}/${mem_total:-?}MB($mem_pct%) $web"
+}
+
+show_help() {
+cat <<EOF
+Aurer Console (ac):
+  ac                 Dashboard
+  ac list            List consoles
+  ac create <name>   Create console
+  ac open <name>     Open console in Termux
+  ac delete <name>   Delete console
+  ac webui           Toggle Web UI
+  ac webui-start     Start Web UI at http://localhost:$WEB_PORT
+  ac webui-stop      Stop Web UI
+  ac webui-status    Show Web UI status
+
+Web UI:
+  Open a console to see its real screen output and run commands in that
+  same shell. Existing output is restored from screen scrollback.
+
+Exit a console in Termux:
+  Double-tap q q quickly.
+EOF
+}
+
+HEADER_ROWS=5
+STATS_ROW=4
+
+draw_full() {
+    local names stats
+    names=$(list_names)
+    stats=$(get_stats)
+    ansi_clear
+    printf "╔════════════════════════════════════════╗\n"
+    printf "║  %-38s║\n" "Aurer Console Manager"
+    printf "╠════════════════════════════════════════╣\n"
+    printf "║  %-38s║\n" "$stats"
+    printf "╠════════════════════════════════════════╣\n"
+    if [ -z "$names" ]; then
+        printf "║  %-38s║\n" "(no consoles running)"
+    else
+        while IFS= read -r n; do printf "║  ▶ %-36s║\n" "$n"; done <<< "$names"
+    fi
+    printf "╠════════════════════════════════════════╣\n"
+    printf "║  %-38s║\n" "[1]Open [2]Create [3]Delete [4]Help"
+    printf "║  %-38s║\n" "[n]Toggle WebUI  [q]Quit"
+    printf "╚════════════════════════════════════════╝\n"
+    printf "> "
+}
+
+update_stats_inline() {
+    local stats
+    stats=$(get_stats)
+    ansi_save
+    ansi_goto "$STATS_ROW"
+    printf "║  %-38s║" "$stats"
+    ansi_restore
+}
+
+dashboard() {
+    local prev_names="" prev_stats="" curr_names curr_stats drawn=0 choice n
+    while true; do
+        curr_names=$(list_names | sort | tr '\n' '|')
+        curr_stats=$(get_stats)
+        if [ "$curr_names" != "$prev_names" ] || [ "$drawn" -eq 0 ]; then
+            draw_full
+            prev_names="$curr_names"
+            prev_stats="$curr_stats"
+            drawn=1
+        elif [ "$curr_stats" != "$prev_stats" ]; then
+            update_stats_inline
+            prev_stats="$curr_stats"
+        fi
+        if read -t 1 -rp "" choice 2>/dev/null; then
+            printf "\n"
+            case "$choice" in
+                1) read -rp "Name to open: " n; open_console "$n"; drawn=0 ;;
+                2) read -rp "New name: " n; create_console "$n"; sleep 0.4; drawn=0 ;;
+                3) read -rp "Name to delete: " n; delete_console "$n"; sleep 0.4; drawn=0 ;;
+                4) show_help; read -rp "Press enter..."; drawn=0 ;;
+                n|N) webui_toggle; sleep 0.6; drawn=0 ;;
+                q|Q|0) ansi_clear; exit 0 ;;
+                "") drawn=0 ;;
+                *) echo "Invalid"; sleep 0.4; drawn=0 ;;
+            esac
+        fi
+    done
+}
+
+case "${1:-}" in
+    list) list_names ;;
+    create) create_console "${2:-}" ;;
+    open) open_console "${2:-}" ;;
+    delete) delete_console "${2:-}" ;;
+    webui) webui_toggle ;;
+    webui-start) webui_start ;;
+    webui-stop) webui_stop ;;
+    webui-status) webui_status; echo ;;
+    help|--help|-h) show_help ;;
+    "") dashboard ;;
+    *) echo "Unknown command."; show_help; exit 1 ;;
+esac
+MAINEOF
+
+chmod 700 "$DIR/webui.py"
+chmod +x "$PREFIX/bin/ac"
+
+# Keep the original convenience console and start the fixed Web UI.
+# Call through bash explicitly so installation also works before $PREFIX/bin
+# has been refreshed in the current shell's command cache.
+bash "$PREFIX/bin/ac" create 1
+bash "$PREFIX/bin/ac" webui-start
+
+cat <<EOF
+
+Done — Aurer Console was updated.
+
+  Dashboard:  ac
+  Web UI:     http://localhost:${AC_WEB_PORT:-5000}
+  Stop Web:   ac webui-stop
+  Start Web:  ac webui-start
+
+In the Web UI, tap "Open console". Commands run in that console's real
+shell, old screen output is loaded, and suggestions appear as you type.
+EOF
