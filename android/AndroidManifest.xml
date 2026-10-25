@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.nishgamerrz.relaydash"
-    android:versionCode="2"
-    android:versionName="1.1">
+    android:versionCode="3"
+    android:versionName="2.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="28" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- open the dashboard / console by itself when the device boots -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- optional: hand a command to Termux (the user must also allow it
-         inside Termux with allow-external-apps=true) -->
-    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- installs on phones AND TVs: no touchscreen, no leanback UI required -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -38,11 +36,17 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Android TV / Google TV home screen -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 
+        <!-- keeps the dashboard serving while the app is closed -->
+        <service
+            android:name=".HostService"
+            android:exported="false"
+            android:label="Relay dashboard host" />
+
+        <!-- brings it back after the TV is switched off at the wall -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
