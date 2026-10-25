@@ -18,8 +18,8 @@ mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$HOME/.screen"
 chmod 700 "$HOME/.screen" "$DIR" "$DIR/output" "$DIR/history"
 : > "$INSTALL_LOG"
 
-THEME_IDS=(midnight ocean dracula emerald sunset cyber mono contrast)
-THEME_NAMES=(Midnight Ocean Dracula Emerald Sunset Cyberpunk Monochrome "High Contrast")
+THEME_IDS=(purple midnight ocean emerald sunset cyber mono contrast)
+THEME_NAMES=(Purple Midnight Ocean Emerald Sunset Cyberpunk Monochrome "High Contrast")
 ansi_clear() { printf "\033[H\033[2J"; }
 
 valid_theme() {
@@ -32,13 +32,13 @@ theme_name() {
     for i in "${!THEME_IDS[@]}"; do
         [ "${THEME_IDS[$i]}" = "$wanted" ] && { printf "%s" "${THEME_NAMES[$i]}"; return; }
     done
-    printf "Midnight"
+    printf "Purple"
 }
 theme_description() {
     case "$1" in
         midnight) printf "Balanced blue on a deep midnight background" ;;
         ocean) printf "Cool cyan accents inspired by deep water" ;;
-        dracula) printf "Purple accents with the classic Dracula palette" ;;
+        purple) printf "Rich violet accents across a deep purple interface" ;;
         emerald) printf "Fresh green accents on dark forest tones" ;;
         sunset) printf "Warm orange and coral on a dark plum background" ;;
         cyber) printf "Electric pink and cyan for a neon terminal" ;;
@@ -49,7 +49,7 @@ theme_description() {
 theme_ansi() {
     case "$1" in
         midnight) printf "\033[38;5;75m" ;; ocean) printf "\033[38;5;45m" ;;
-        dracula) printf "\033[38;5;141m" ;; emerald) printf "\033[38;5;42m" ;;
+        purple) printf "\033[38;5;141m" ;; emerald) printf "\033[38;5;42m" ;;
         sunset) printf "\033[38;5;209m" ;; cyber) printf "\033[38;5;201m" ;;
         mono) printf "\033[38;5;250m" ;; contrast) printf "\033[38;5;226m" ;;
     esac
@@ -59,7 +59,7 @@ load_saved_theme() {
     if [ -f "$PREFERENCES_FILE" ]; then
         saved="$(sed -n 's/.*"theme"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PREFERENCES_FILE" | head -n 1)"
     fi
-    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "midnight"; fi
+    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "purple"; fi
 }
 save_preferences() {
     printf '{\n  "theme": "%s"\n}\n' "$THEME_ID" > "$PREFERENCES_FILE.tmp"
@@ -86,10 +86,10 @@ fi
 installer_draw() {
     local selected="$1" i marker color name
     ansi_clear
-    printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
-    printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Console Manager Setup"
-    printf "\033[1;36m║\033[0m  %-46s\033[1;36m║\033[0m\n" "Choose a persistent style"
-    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    printf "\033[1;35m╔══════════════════════════════════════════════════╗\033[0m\n"
+    printf "\033[1;35m║\033[0m  \033[1m%-46s\033[0m\033[1;35m║\033[0m\n" "Console Manager Setup"
+    printf "\033[1;35m║\033[0m  %-46s\033[1;35m║\033[0m\n" "Choose a persistent style"
+    printf "\033[1;35m╠══════════════════════════════════════════════════╣\033[0m\n"
     for i in "${!THEME_IDS[@]}"; do
         marker=" "
         [ "$i" -eq "$selected" ] && marker=">"
@@ -99,14 +99,14 @@ installer_draw() {
         else printf "   %s %b%-18s\033[0m" "$marker" "$color" "$name"; fi
         if [ $((i % 2)) -eq 1 ]; then printf "\n"; else printf "  "; fi
     done
-    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    printf "\033[1;35m╠══════════════════════════════════════════════════╣\033[0m\n"
     printf "  Selected: \033[1m%s\033[0m\n" "$(theme_name "${THEME_IDS[$selected]}")"
     printf "  %s\n" "$(theme_description "${THEME_IDS[$selected]}")"
     printf "  Saved preference: %s\n" "$PREFERENCES_FILE"
-    printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+    printf "\033[1;35m╠══════════════════════════════════════════════════╣\033[0m\n"
     printf "  [U] Up  [D] Down  [L] Left  [R] Right\n"
     printf "  [1-8] Jump  [Enter] Save + Install  [Q] Quit\n"
-    printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n"
+    printf "\033[1;35m╚══════════════════════════════════════════════════╝\033[0m\n"
 }
 
 select_installer_theme() {
@@ -142,10 +142,10 @@ dependency_screen() {
     filled=$((percent * 30 / 100))
     empty=$((30 - filled))
     ansi_clear
-    printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
-    printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Console Manager Setup"
-    printf "\033[1;36m║\033[0m  %-46s\033[1;36m║\033[0m\n" "Installing dependencies"
-    printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n\n"
+    printf "\033[1;35m╔══════════════════════════════════════════════════╗\033[0m\n"
+    printf "\033[1;35m║\033[0m  \033[1m%-46s\033[0m\033[1;35m║\033[0m\n" "Console Manager Setup"
+    printf "\033[1;35m║\033[0m  %-46s\033[1;35m║\033[0m\n" "Installing dependencies"
+    printf "\033[1;35m╚══════════════════════════════════════════════════╝\033[0m\n\n"
     printf "  Style: %b%s\033[0m (saved)\n" "$(theme_ansi "$THEME_ID")" "$(theme_name "$THEME_ID")"
     printf "  Step %d/%d\n\n" "$step" "$total"
     printf "  ["; printf "%${filled}s" | tr ' ' '#'; printf "%${empty}s" | tr ' ' '-'; printf "] %3d%%\n\n" "$percent"
@@ -207,6 +207,36 @@ if [ -f "$DIR/webui.pid" ]; then
     rm -f "$DIR/webui.pid"
 fi
 
+# Retire the old optional Tailscale Funnel integration. Only files and the
+# userspace daemon owned by Console Manager are touched; system packages and
+# existing screen consoles are never removed.
+if [ -f "$PREFIX/bin/ac" ] && grep -q '^https_stop()' "$PREFIX/bin/ac"; then
+    bash "$PREFIX/bin/ac" https-stop >> "$INSTALL_LOG" 2>&1 || true
+fi
+if [ -f "$DIR/tailscale/tailscaled.pid" ]; then
+    old_ts_pid="$(cat "$DIR/tailscale/tailscaled.pid" 2>/dev/null || true)"
+    if [[ "$old_ts_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_ts_pid" 2>/dev/null; then
+        old_ts_cmd=""
+        if [ -r "/proc/$old_ts_pid/cmdline" ]; then
+            old_ts_cmd="$(tr '\0' ' ' < "/proc/$old_ts_pid/cmdline" 2>/dev/null || true)"
+        fi
+        case "$old_ts_cmd" in
+            *tailscaled*"$DIR/tailscale/tailscaled.state"*)
+                kill "$old_ts_pid" 2>/dev/null || true
+                sleep 0.2
+                kill -0 "$old_ts_pid" 2>/dev/null && kill -9 "$old_ts_pid" 2>/dev/null || true
+                ;;
+        esac
+    fi
+fi
+rm -f "$DIR/access-key.txt" "$DIR/https-url.txt"
+rm -f "$DIR/bin/tailscale" "$DIR/bin/tailscaled" "$DIR/bin/tailscale.tmp" "$DIR/bin/tailscaled.tmp"
+rm -rf "$DIR/tailscale"
+for old_ts_archive in "$DIR/downloads"/tailscale_*.tgz; do
+    if [ -e "$old_ts_archive" ]; then rm -f "$old_ts_archive"; fi
+done
+rmdir "$DIR/bin" "$DIR/downloads" 2>/dev/null || true
+
 cat > "$DIR/webui.py" <<'PYEOF'
 #!/usr/bin/env python3
 """Console Manager Web UI.
@@ -218,9 +248,6 @@ commands entered from Termux before the web console was opened.
 """
 
 import http.server
-import base64
-import binascii
-import hmac
 import json
 import os
 import re
@@ -252,11 +279,11 @@ COMMAND_CACHE_LOCK = threading.Lock()
 HISTORY_LOCK = threading.Lock()
 PREFERENCES_LOCK = threading.Lock()
 PREFERENCES_FILE = BASE_DIR / "preferences.json"
-AUTH_KEY_FILE = BASE_DIR / "access-key.txt"
+DEFAULT_THEME = "purple"
 WEB_THEMES = [
+    {"id": "purple", "name": "Purple", "description": "Rich violet"},
     {"id": "midnight", "name": "Midnight", "description": "Balanced blue"},
     {"id": "ocean", "name": "Ocean", "description": "Cool cyan"},
-    {"id": "dracula", "name": "Dracula", "description": "Classic purple"},
     {"id": "emerald", "name": "Emerald", "description": "Forest green"},
     {"id": "sunset", "name": "Sunset", "description": "Warm coral"},
     {"id": "cyber", "name": "Cyberpunk", "description": "Electric neon"},
@@ -288,18 +315,18 @@ HTML = r'''<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#080d17">
+<meta name="theme-color" content="#120a1d">
 <title>Console Manager</title>
 <style>
 :root {
   color-scheme: dark;
-  --bg: #080d17; --panel: rgba(17,25,40,.92); --panel-2: #111a2a;
-  --line: #243249; --text: #edf4ff; --muted: #8e9db5;
-  --blue: #67a6ff; --blue-2: #377df3; --green: #54d69a; --red: #ff7381;
-  --input-bg: #0a1220; --button-bg: #18243a; --button-hover: #20304b;
-  --terminal-bg: #070c14; --terminal-text: #d5e5f8; --terminal-bar: #101929;
-  --glow: rgba(55,125,243,.18); --glow-2: rgba(84,214,154,.07);
-  --shadow: 0 18px 55px rgba(0,0,0,.32);
+  --bg: #120a1d; --panel: rgba(31,19,46,.95); --panel-2: #29173d;
+  --line: #563674; --text: #faf5ff; --muted: #b9a3ca;
+  --blue: #c084fc; --blue-2: #8b5cf6; --green: #54d69a; --red: #ff7381;
+  --input-bg: #1a1028; --button-bg: #37214e; --button-hover: #493065;
+  --terminal-bg: #0d0715; --terminal-text: #f3e8ff; --terminal-bar: #241334;
+  --glow: rgba(192,132,252,.22); --glow-2: rgba(139,92,246,.12);
+  --shadow: 0 18px 55px rgba(0,0,0,.38);
 }
 body[data-theme="ocean"] {
   --bg:#061218; --panel:rgba(10,29,38,.94); --panel-2:#0c2530; --line:#1c4652;
@@ -307,11 +334,11 @@ body[data-theme="ocean"] {
   --input-bg:#071a22; --button-bg:#12313d; --button-hover:#194452; --terminal-bg:#041015;
   --terminal-text:#d2f5f7; --terminal-bar:#0b2029; --glow:rgba(27,195,216,.17); --glow-2:rgba(77,222,157,.07);
 }
-body[data-theme="dracula"] {
-  --bg:#1d1e26; --panel:rgba(40,42,54,.95); --panel-2:#282a36; --line:#4b4e63;
-  --text:#f8f8f2; --muted:#a7aac0; --blue:#bd93f9; --blue-2:#8256c7; --green:#50fa7b; --red:#ff5555;
-  --input-bg:#22232e; --button-bg:#34364a; --button-hover:#44475c; --terminal-bg:#191a21;
-  --terminal-text:#f8f8f2; --terminal-bar:#282a36; --glow:rgba(189,147,249,.16); --glow-2:rgba(80,250,123,.06);
+body[data-theme="purple"] {
+  --bg:#120a1d; --panel:rgba(31,19,46,.95); --panel-2:#29173d; --line:#563674;
+  --text:#faf5ff; --muted:#b9a3ca; --blue:#c084fc; --blue-2:#8b5cf6; --green:#54d69a; --red:#ff7381;
+  --input-bg:#1a1028; --button-bg:#37214e; --button-hover:#493065; --terminal-bg:#0d0715;
+  --terminal-text:#f3e8ff; --terminal-bar:#241334; --glow:rgba(192,132,252,.22); --glow-2:rgba(139,92,246,.12);
 }
 body[data-theme="emerald"] {
   --bg:#07130f; --panel:rgba(13,35,27,.94); --panel-2:#102a20; --line:#28503e;
@@ -395,12 +422,12 @@ h1 { font-size: 18px; letter-spacing: -.02em; }
 .panel-head h2 { font-size: 15px; }
 .create-row { display: flex; gap: 8px; width: min(410px, 58%); }
 input {
-  min-width: 0; width: 100%; border: 1px solid #2b3b55; border-radius: 10px;
+  min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 10px;
   outline: none; background: var(--input-bg); color: var(--text); padding: 10px 12px;
   transition: border-color .15s, box-shadow .15s;
 }
-input:focus { border-color: var(--blue-2); box-shadow: 0 0 0 3px rgba(55,125,243,.14); }
-input::placeholder { color: #65758e; }
+input:focus { border-color: var(--blue-2); box-shadow: 0 0 0 3px var(--glow); }
+input::placeholder { color: var(--muted); }
 .btn {
   border: 1px solid var(--line); border-radius: 10px; background: var(--button-bg); color: var(--text);
   padding: 9px 13px; cursor: pointer; white-space: nowrap; transition: transform .12s, background .12s, border-color .12s;
@@ -409,7 +436,7 @@ input::placeholder { color: #65758e; }
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .btn:disabled { opacity: .5; cursor: wait; }
-.btn-primary { background: var(--blue-2); border-color: #5592f6; color: white; font-weight: 600; }
+.btn-primary { background: var(--blue-2); border-color: var(--blue); color: white; font-weight: 600; }
 .btn-primary:hover { background: var(--blue-2); filter: brightness(1.12); }
 .btn-danger { color: #ff9aa5; background: rgba(105,28,40,.16); border-color: #51313f; }
 .btn-danger:hover { background: rgba(130,34,48,.3); border-color: #78404f; }
@@ -417,7 +444,7 @@ input::placeholder { color: #65758e; }
 .console-list { padding: 8px 18px 18px; }
 .console-card {
   display: flex; align-items: center; gap: 13px; padding: 15px 2px;
-  border-bottom: 1px solid rgba(36,50,73,.75);
+  border-bottom: 1px solid var(--line);
 }
 .console-card:last-child { border-bottom: 0; }
 .console-glyph {
@@ -437,7 +464,7 @@ input::placeholder { color: #65758e; }
 .terminal-window { border-radius: 16px; overflow: hidden; }
 .terminal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: var(--terminal-bar); border-bottom: 1px solid var(--line); }
 .terminal-title { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
-.terminal-title .lights { color: #53647e; letter-spacing: 4px; }
+.terminal-title .lights { color: var(--muted); letter-spacing: 4px; }
 .terminal-output {
   height: min(58vh, 590px); min-height: 300px; margin: 0; padding: 17px;
   overflow: auto; overscroll-behavior: contain; background: var(--terminal-bg); color: var(--terminal-text);
@@ -496,7 +523,7 @@ input::placeholder { color: #65758e; }
   <header class="topbar">
     <div class="brand">
       <div class="logo" aria-hidden="true">&gt;_</div>
-      <div><h1>Console Manager</h1><p class="subtitle">Your Termux screens, in one clean dashboard</p></div>
+      <div><h1>Console Manager</h1><p class="subtitle">Localhost dashboard · no password required</p></div>
     </div>
     <div class="topbar-actions">
       <label class="style-control">Style <select id="themeSelect" aria-label="Web dashboard style"></select></label>
@@ -553,7 +580,7 @@ const byId = id => document.getElementById(id);
 const state = {
   consoles: [], active: null, output: '', outputBusy: false,
   suggestions: [], suggestionIndex: -1, suggestTimer: null, toastTimer: null,
-  theme: document.body.dataset.theme || 'midnight', themes: []
+  theme: document.body.dataset.theme || 'purple', themes: []
 };
 
 async function api(path, options = {}) {
@@ -800,33 +827,9 @@ class ApiError(Exception):
         self.status = status
 
 
-def authentication_required():
-    # Any existing path fails closed, even if it is unreadable or not a file.
-    return os.path.lexists(AUTH_KEY_FILE)
-
-
-def access_key():
-    try:
-        return AUTH_KEY_FILE.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
-
-
-def valid_basic_auth(header):
-    if not authentication_required():
-        return True
-    if not header or not header.startswith("Basic "):
-        return False
-    try:
-        supplied = base64.b64decode(header[6:].strip(), validate=True)
-    except (ValueError, binascii.Error):
-        return False
-    expected = b"manager:" + access_key().encode("utf-8")
-    return bool(access_key()) and hmac.compare_digest(supplied, expected)
-
-
 def valid_host_header(value):
-    # Reject DNS-rebinding hosts. Funnel device names always end in .ts.net.
+    # Localhost needs no password, but foreign Host headers are still rejected
+    # to prevent a malicious website from DNS-rebinding to this dashboard.
     host = (value or "").strip()
     if host.startswith("[") and "]" in host:
         host = host[1:host.index("]")]
@@ -836,7 +839,7 @@ def valid_host_header(value):
     allowed = {"localhost", "127.0.0.1", "::1"}
     if WEB_HOST not in ("", "0.0.0.0", "::"):
         allowed.add(WEB_HOST.lower())
-    return host in allowed or host.endswith(".ts.net")
+    return host in allowed
 
 
 def load_preferences():
@@ -845,7 +848,7 @@ def load_preferences():
     except (OSError, json.JSONDecodeError):
         data = {}
     theme = data.get("theme") if isinstance(data, dict) else None
-    return {"theme": theme if theme in THEME_IDS else "midnight"}
+    return {"theme": theme if theme in THEME_IDS else DEFAULT_THEME}
 
 
 def save_preferences(theme):
@@ -1184,16 +1187,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not valid_host_header(self.headers.get("Host", "")):
             self.send_json({"ok": False, "error": "This hostname is not allowed."}, 403)
             return False
-        if not valid_basic_auth(self.headers.get("Authorization", "")):
-            body = json.dumps({"ok": False, "error": "Console Manager access key required."}).encode("utf-8")
-            self.send_response(401)
-            self.common_headers()
-            self.send_header("WWW-Authenticate", 'Basic realm="Console Manager", charset="UTF-8"')
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return False
         return True
 
     # Never write HTTP access logs to the terminal running the ac dashboard.
@@ -1331,19 +1324,11 @@ WEBUI_PY="$DIR/webui.py"
 WEBUI_PID_FILE="$DIR/webui.pid"
 WEBUI_LOG="$DIR/webui.log"
 PREFERENCES_FILE="$DIR/preferences.json"
-AUTH_KEY_FILE="$DIR/access-key.txt"
-HTTPS_URL_FILE="$DIR/https-url.txt"
-TS_DIR="$DIR/tailscale"
-TS_SOCKET="$TS_DIR/tailscaled.sock"
-TS_STATE="$TS_DIR/tailscaled.state"
-TS_LOG="$TS_DIR/tailscaled.log"
-TS_PID_FILE="$TS_DIR/tailscaled.pid"
 WEB_HOST="${AC_WEB_HOST:-127.0.0.1}"
 WEB_PORT="${AC_WEB_PORT:-5000}"
 export SCREENDIR="$HOME/.screen"
 mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$SCREENDIR"
 chmod 700 "$SCREENDIR" "$DIR" "$DIR/output" "$DIR/history"
-export PATH="$DIR/bin:$PATH"
 
 auto_install() {
     local missing=()
@@ -1370,8 +1355,8 @@ ansi_goto()       { printf "\033[%d;1H" "$1"; }
 ansi_save()       { printf "\033[s"; }
 ansi_restore()    { printf "\033[u"; }
 
-THEME_IDS=(midnight ocean dracula emerald sunset cyber mono contrast)
-THEME_NAMES=(Midnight Ocean Dracula Emerald Sunset Cyberpunk Monochrome "High Contrast")
+THEME_IDS=(purple midnight ocean emerald sunset cyber mono contrast)
+THEME_NAMES=(Purple Midnight Ocean Emerald Sunset Cyberpunk Monochrome "High Contrast")
 valid_theme() {
     local wanted="$1" id
     for id in "${THEME_IDS[@]}"; do [ "$wanted" = "$id" ] && return 0; done
@@ -1382,14 +1367,14 @@ theme_name() {
     for i in "${!THEME_IDS[@]}"; do
         [ "${THEME_IDS[$i]}" = "$wanted" ] && { printf "%s" "${THEME_NAMES[$i]}"; return; }
     done
-    printf "Midnight"
+    printf "Purple"
 }
 load_saved_theme() {
     local saved=""
     if [ -f "$PREFERENCES_FILE" ]; then
         saved="$(sed -n 's/.*"theme"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PREFERENCES_FILE" | head -n 1)"
     fi
-    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "midnight"; fi
+    if [ -n "$saved" ] && valid_theme "$saved"; then printf "%s" "$saved"; else printf "purple"; fi
 }
 save_preferences() {
     printf '{\n  "theme": "%s"\n}\n' "$THEME_ID" > "$PREFERENCES_FILE.tmp"
@@ -1401,7 +1386,7 @@ apply_cli_theme() {
     case "$THEME_ID" in
         midnight) C_BORDER=$'\033[38;5;75m'; C_ACCENT=$'\033[38;5;81m'; C_TEXT=$'\033[38;5;252m'; C_MUTED=$'\033[38;5;244m'; C_SELECTED=$'\033[48;5;24m\033[38;5;255m' ;;
         ocean) C_BORDER=$'\033[38;5;45m'; C_ACCENT=$'\033[38;5;51m'; C_TEXT=$'\033[38;5;195m'; C_MUTED=$'\033[38;5;109m'; C_SELECTED=$'\033[48;5;25m\033[38;5;255m' ;;
-        dracula) C_BORDER=$'\033[38;5;141m'; C_ACCENT=$'\033[38;5;183m'; C_TEXT=$'\033[38;5;255m'; C_MUTED=$'\033[38;5;103m'; C_SELECTED=$'\033[48;5;60m\033[38;5;255m' ;;
+        purple) C_BORDER=$'\033[38;5;141m'; C_ACCENT=$'\033[38;5;183m'; C_TEXT=$'\033[38;5;255m'; C_MUTED=$'\033[38;5;103m'; C_SELECTED=$'\033[48;5;60m\033[38;5;255m' ;;
         emerald) C_BORDER=$'\033[38;5;42m'; C_ACCENT=$'\033[38;5;48m'; C_TEXT=$'\033[38;5;194m'; C_MUTED=$'\033[38;5;108m'; C_SELECTED=$'\033[48;5;22m\033[38;5;255m' ;;
         sunset) C_BORDER=$'\033[38;5;209m'; C_ACCENT=$'\033[38;5;216m'; C_TEXT=$'\033[38;5;224m'; C_MUTED=$'\033[38;5;174m'; C_SELECTED=$'\033[48;5;95m\033[38;5;255m' ;;
         cyber) C_BORDER=$'\033[38;5;201m'; C_ACCENT=$'\033[38;5;51m'; C_TEXT=$'\033[38;5;225m'; C_MUTED=$'\033[38;5;140m'; C_SELECTED=$'\033[48;5;90m\033[38;5;255m' ;;
@@ -1498,193 +1483,6 @@ webui_stop() {
 
 webui_toggle() { webui_running && webui_stop || webui_start; }
 webui_status() { webui_running && printf "Web:ON :%s" "$WEB_PORT" || printf "Web:OFF"; }
-
-install_tailscale_static() {
-    if command -v tailscale >/dev/null 2>&1 && command -v tailscaled >/dev/null 2>&1; then return 0; fi
-    mkdir -p "$DIR/bin" "$DIR/downloads"
-    echo "Installing Tailscale's official static binaries (curl is not needed)..."
-    python3 - "$DIR" <<'PYTAILSCALE'
-import hashlib
-import json
-import os
-import platform
-import shutil
-import sys
-import tarfile
-import urllib.parse
-import urllib.request
-from pathlib import Path
-
-base = Path(sys.argv[1])
-machine = platform.machine().lower()
-if machine in ("aarch64", "arm64"):
-    architecture = "arm64"
-elif machine.startswith("arm"):
-    architecture = "arm"
-elif machine in ("x86_64", "amd64"):
-    architecture = "amd64"
-elif machine in ("i386", "i486", "i586", "i686"):
-    architecture = "386"
-else:
-    raise SystemExit("Unsupported Tailscale architecture: " + machine)
-
-index_url = os.environ.get("AC_TS_INDEX_URL", "https://pkgs.tailscale.com/stable/?mode=json")
-base_url = os.environ.get("AC_TS_BASE_URL", "https://pkgs.tailscale.com/stable/")
-with urllib.request.urlopen(index_url, timeout=60) as response:
-    index = json.load(response)
-try:
-    tarball = index["Tarballs"][architecture]
-except KeyError:
-    raise SystemExit("Tailscale's stable index has no package for " + architecture)
-url = urllib.parse.urljoin(base_url, tarball)
-archive = base / "downloads" / tarball
-archive.parent.mkdir(parents=True, exist_ok=True)
-with urllib.request.urlopen(url, timeout=120) as response, archive.open("wb") as output:
-    shutil.copyfileobj(response, output, 1024 * 1024)
-with urllib.request.urlopen(url + ".sha256", timeout=60) as response:
-    expected = response.read().decode("ascii").split()[0].lower()
-digest = hashlib.sha256()
-with archive.open("rb") as source:
-    for block in iter(lambda: source.read(1024 * 1024), b""):
-        digest.update(block)
-if digest.hexdigest().lower() != expected:
-    archive.unlink(missing_ok=True)
-    raise SystemExit("Tailscale download failed SHA-256 verification; nothing was installed.")
-
-bin_dir = base / "bin"
-bin_dir.mkdir(parents=True, exist_ok=True)
-found = set()
-with tarfile.open(archive, "r:gz") as package:
-    for member in package.getmembers():
-        name = member.name.rsplit("/", 1)[-1]
-        if name not in ("tailscale", "tailscaled") or not member.isfile():
-            continue
-        source = package.extractfile(member)
-        if source is None:
-            continue
-        target = bin_dir / name
-        temporary = target.with_suffix(".tmp")
-        with source, temporary.open("wb") as output:
-            shutil.copyfileobj(source, output, 1024 * 1024)
-        temporary.chmod(0o700)
-        os.replace(temporary, target)
-        found.add(name)
-if found != {"tailscale", "tailscaled"}:
-    raise SystemExit("The Tailscale archive did not contain both required binaries.")
-archive.unlink(missing_ok=True)
-print("Tailscale " + tarball + " downloaded and verified.")
-PYTAILSCALE
-}
-
-ensure_access_key() {
-    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
-        python3 - "$AUTH_KEY_FILE" <<'PYAUTH'
-import secrets
-import sys
-from pathlib import Path
-path = Path(sys.argv[1])
-path.write_text(secrets.token_urlsafe(24) + "\n", encoding="utf-8")
-path.chmod(0o600)
-PYAUTH
-    fi
-    chmod 600 "$AUTH_KEY_FILE" && [ -f "$AUTH_KEY_FILE" ] && [ -s "$AUTH_KEY_FILE" ]
-}
-
-ts_cli() { tailscale --socket "$TS_SOCKET" "$@"; }
-tailscaled_running() {
-    [ -e "$TS_SOCKET" ] || return 1
-    ts_cli status --json >/dev/null 2>&1
-}
-start_tailscaled() {
-    install_tailscale_static || return 1
-    mkdir -p "$TS_DIR"
-    chmod 700 "$TS_DIR"
-    if tailscaled_running; then return 0; fi
-    local pid="" already=0
-    if [ -f "$TS_PID_FILE" ]; then
-        pid="$(cat "$TS_PID_FILE" 2>/dev/null)"
-        case "$pid" in ''|*[!0-9]*) ;; *) kill -0 "$pid" 2>/dev/null && already=1 ;; esac
-    fi
-    if [ "$already" -eq 0 ]; then
-        rm -f "$TS_SOCKET"
-        if command -v setsid >/dev/null 2>&1; then
-            nohup setsid tailscaled --tun=userspace-networking --state="$TS_STATE" --socket="$TS_SOCKET" --port=41641 </dev/null >>"$TS_LOG" 2>&1 &
-        else
-            nohup tailscaled --tun=userspace-networking --state="$TS_STATE" --socket="$TS_SOCKET" --port=41641 </dev/null >>"$TS_LOG" 2>&1 &
-        fi
-        echo "$!" > "$TS_PID_FILE"
-    fi
-    local i
-    for i in {1..40}; do
-        tailscaled_running && return 0
-        sleep 0.25
-    done
-    echo "Tailscale daemon did not start. See $TS_LOG"
-    return 1
-}
-ts_backend_state() {
-    ts_cli status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState", ""))' 2>/dev/null
-}
-ts_dns_name() {
-    ts_cli status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self", {}).get("DNSName", "").rstrip("."))' 2>/dev/null
-}
-https_key() {
-    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
-        echo "No access key yet. Run: ac https-setup"
-        return 1
-    fi
-    printf "Browser username: manager\nBrowser password/access key: %s\n" "$(cat "$AUTH_KEY_FILE")"
-}
-https_setup() {
-    echo "Console Manager permanent HTTPS setup (Tailscale Funnel)"
-    install_tailscale_static || return 1
-    # Authentication MUST exist before any public Funnel route is enabled.
-    ensure_access_key || { echo "Could not create the access key; HTTPS was not enabled."; return 1; }
-    webui_running || webui_start || return 1
-    start_tailscaled || return 1
-    if [ "$(ts_backend_state)" != "Running" ]; then
-        echo "Tailscale will show a sign-in URL. Open it on this phone and approve the device."
-        ts_cli up --hostname=console-manager || return 1
-    fi
-    echo "Enabling HTTPS on port 443. If Tailscale shows a Funnel approval URL, open and approve it."
-    ensure_access_key || { echo "Access-key verification failed; HTTPS was not enabled."; return 1; }
-    ts_cli funnel --bg --https=443 "http://127.0.0.1:$WEB_PORT" || return 1
-    local url="$(ts_dns_name)"
-    [ -n "$url" ] || { echo "Funnel was enabled, but its DNS name could not be read. Run: ac https-status"; return 1; }
-    printf "%s\n" "https://$url" > "$HTTPS_URL_FILE"
-    chmod 600 "$HTTPS_URL_FILE"
-    printf "\nHTTPS enabled: https://%s\n" "$url"
-    echo "This hostname stays tied to the saved Tailscale device in $TS_DIR."
-    https_key
-    echo "Keep this key private. Anyone with the URL and key can control your consoles."
-    echo "The phone, Web UI, and Tailscale daemon must stay online for the URL to work."
-}
-https_start() {
-    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
-        echo "Run 'ac https-setup' first so public access is protected."
-        return 1
-    fi
-    webui_running || webui_start || return 1
-    start_tailscaled || return 1
-    [ "$(ts_backend_state)" = "Running" ] || { echo "Tailscale needs sign-in. Run: ac https-setup"; return 1; }
-    ensure_access_key || { echo "Access-key verification failed; HTTPS was not enabled."; return 1; }
-    ts_cli funnel --bg --https=443 "http://127.0.0.1:$WEB_PORT" || return 1
-    local url="$(ts_dns_name)"
-    [ -n "$url" ] || { echo "Funnel started, but its DNS name could not be read. Run: ac https-status"; return 1; }
-    printf "%s\n" "https://$url" > "$HTTPS_URL_FILE"
-    chmod 600 "$HTTPS_URL_FILE"
-    printf "HTTPS started: https://%s\n" "$url"
-}
-https_stop() {
-    if [ -e "$TS_SOCKET" ]; then ts_cli funnel --https=443 off || return 1; fi
-    rm -f "$HTTPS_URL_FILE"
-    echo "Public HTTPS stopped. Localhost remains available and access-key protected."
-}
-https_status() {
-    if [ -f "$HTTPS_URL_FILE" ]; then printf "Saved URL: %s\n" "$(cat "$HTTPS_URL_FILE")"; fi
-    if tailscaled_running; then ts_cli funnel status;
-    else echo "Tailscale is not running. Start with: ac https-start"; fi
-}
 
 list_names() {
     screen -ls 2>/dev/null | sed -n "s/^[[:space:]]*[0-9]*\.${SESSION_PREFIX}\([A-Za-z0-9][A-Za-z0-9_-]*\).*/\1/p"
@@ -1795,12 +1593,7 @@ Console Manager (ac):
   ac webui           Toggle Web UI
   ac webui-start     Start Web UI at http://localhost:$WEB_PORT
   ac webui-stop      Stop Web UI
-  ac webui-status    Show Web UI status
-  ac https-setup     Set up permanent Tailscale HTTPS + access key
-  ac https-start     Restart saved HTTPS after Termux/device restart
-  ac https-stop      Disable public Funnel access
-  ac https-status    Show Funnel status and saved URL
-  ac https-key       Show browser username and access key
+  ac webui-status    Show Web UI status (localhost, no password)
 
 Dashboard keys:
   U / D       Move up / down
@@ -1924,11 +1717,6 @@ case "${1:-}" in
     webui-start) webui_start ;;
     webui-stop) webui_stop ;;
     webui-status) webui_status; echo ;;
-    https-setup|https-enable) https_setup ;;
-    https-start) https_start ;;
-    https-stop) https_stop ;;
-    https-status) https_status ;;
-    https-key) https_key ;;
     help|--help|-h) show_help ;;
     "") dashboard ;;
     *) echo "Unknown command."; show_help; exit 1 ;;
@@ -1950,16 +1738,16 @@ if ! bash "$PREFIX/bin/ac" webui-start >> "$INSTALL_LOG" 2>&1; then
 fi
 
 ansi_clear
-printf "\033[1;36m╔══════════════════════════════════════════════════╗\033[0m\n"
-printf "\033[1;36m║\033[0m  \033[1m%-46s\033[0m\033[1;36m║\033[0m\n" "Installed Console Manager"
-printf "\033[1;36m╠══════════════════════════════════════════════════╣\033[0m\n"
+printf "\033[1;35m╔══════════════════════════════════════════════════╗\033[0m\n"
+printf "\033[1;35m║\033[0m  \033[1m%-46s\033[0m\033[1;35m║\033[0m\n" "Installed Console Manager."
+printf "\033[1;35m╠══════════════════════════════════════════════════╣\033[0m\n"
 printf "  ✓ Installation complete\n"
 printf "  ✓ Style: %b%s\033[0m (preference saved)\n" "$(theme_ansi "$THEME_ID")" "$(theme_name "$THEME_ID")"
 printf "  ✓ Dependencies installed\n"
 printf "  ✓ Web dashboard started\n\n"
 printf "  Termux dashboard:  ac\n"
-printf "  Web dashboard:     http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
-printf "  Change style:      ac theme\n"
-printf "  Permanent HTTPS:   ac https-setup\n\n"
+printf "  Local dashboard:   http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
+printf "  Login:             No password required\n"
+printf "  Change style:      ac theme\n\n"
 printf "  Dashboard controls: U/D/L/R move, Enter opens, T changes style.\n"
-printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n"
+printf "\033[1;35m╚══════════════════════════════════════════════════╝\033[0m\n"
