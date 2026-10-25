@@ -248,11 +248,14 @@ commands entered from Termux before the web console was opened.
 """
 
 import http.server
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -266,7 +269,7 @@ SCREENRC = BASE_DIR / "screenrc"
 OUTPUT_DIR = BASE_DIR / "output"
 HISTORY_DIR = BASE_DIR / "history"
 SCREEN_DIR = Path(os.environ.get("SCREENDIR", str(Path.home() / ".screen")))
-WEB_HOST = os.environ.get("AC_WEB_HOST", "127.0.0.1")
+WEB_HOST = os.environ.get("AC_WEB_HOST", "0.0.0.0")
 WEB_PORT = int(os.environ.get("AC_WEB_PORT", "5000"))
 MAX_BODY_BYTES = 64 * 1024
 MAX_COMMAND_CHARS = 4000
@@ -301,6 +304,39 @@ except OSError:
 
 SCREEN_ENV = os.environ.copy()
 SCREEN_ENV["SCREENDIR"] = str(SCREEN_DIR)
+
+
+def lan_ipv4():
+    """Return the phone's local-network IPv4 address without sending traffic."""
+    candidates = []
+    override = os.environ.get("AC_LAN_IP", "").strip()
+    if override:
+        candidates.append(override)
+    try:
+        # UDP connect only selects a route; it does not send a packet.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            candidates.append(sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), 0, socket.AF_INET, socket.SOCK_DGRAM):
+            candidates.append(info[4][0])
+    except OSError:
+        pass
+    seen = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            address = ipaddress.IPv4Address(candidate)
+        except ipaddress.AddressValueError:
+            continue
+        if (address.is_private or address.is_link_local) and not address.is_loopback and not address.is_unspecified:
+            return str(address)
+    return ""
+
 
 DEFAULT_SCREENRC = """startup_message off
 defscrollback 10000
@@ -523,7 +559,7 @@ input::placeholder { color: var(--muted); }
   <header class="topbar">
     <div class="brand">
       <div class="logo" aria-hidden="true">&gt;_</div>
-      <div><h1>Console Manager</h1><p class="subtitle">Localhost dashboard · no password required</p></div>
+      <div><h1>Console Manager</h1><p class="subtitle">Local + same-Wi-Fi dashboard · no password required</p></div>
     </div>
     <div class="topbar-actions">
       <label class="style-control">Style <select id="themeSelect" aria-label="Web dashboard style"></select></label>
@@ -828,8 +864,8 @@ class ApiError(Exception):
 
 
 def valid_host_header(value):
-    # Localhost needs no password, but foreign Host headers are still rejected
-    # to prevent a malicious website from DNS-rebinding to this dashboard.
+    # Allow localhost and literal private-network IPs, but reject foreign hostnames
+    # to reduce DNS-rebinding exposure while sharing on the same Wi-Fi.
     host = (value or "").strip()
     if host.startswith("[") and "]" in host:
         host = host[1:host.index("]")]
@@ -839,7 +875,13 @@ def valid_host_header(value):
     allowed = {"localhost", "127.0.0.1", "::1"}
     if WEB_HOST not in ("", "0.0.0.0", "::"):
         allowed.add(WEB_HOST.lower())
-    return host in allowed
+    if host in allowed:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
 
 
 def load_preferences():
@@ -1219,6 +1261,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def read_body(self):
+        # JSON requests trigger a browser CORS preflight cross-origin. Rejecting
+        # simple form/text POSTs helps protect the password-free LAN dashboard.
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ApiError("Content-Type must be application/json.", 415)
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -1304,15 +1351,22 @@ class Server(http.server.ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
-    ensure_screenrc()
-    server = Server((WEB_HOST, WEB_PORT), Handler)
-    print(f"Console Manager Web UI listening on http://{WEB_HOST}:{WEB_PORT}", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    if len(sys.argv) > 1 and sys.argv[1] == "--lan-ip":
+        print(lan_ipv4())
+    else:
+        ensure_screenrc()
+        server = Server((WEB_HOST, WEB_PORT), Handler)
+        print(f"Console Manager Web UI listening on {WEB_HOST}:{WEB_PORT}", flush=True)
+        print(f"This phone: http://localhost:{WEB_PORT}", flush=True)
+        network_ip = lan_ipv4()
+        if network_ip and WEB_HOST not in ("127.0.0.1", "localhost", "::1"):
+            print(f"Other devices on the same Wi-Fi: http://{network_ip}:{WEB_PORT}", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
 PYEOF
 
 cat > "$PREFIX/bin/ac" <<'MAINEOF'
@@ -1324,7 +1378,7 @@ WEBUI_PY="$DIR/webui.py"
 WEBUI_PID_FILE="$DIR/webui.pid"
 WEBUI_LOG="$DIR/webui.log"
 PREFERENCES_FILE="$DIR/preferences.json"
-WEB_HOST="${AC_WEB_HOST:-127.0.0.1}"
+WEB_HOST="${AC_WEB_HOST:-0.0.0.0}"
 WEB_PORT="${AC_WEB_PORT:-5000}"
 export SCREENDIR="$HOME/.screen"
 mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$SCREENDIR"
@@ -1433,9 +1487,42 @@ webui_running() {
     kill -0 "$pid" 2>/dev/null
 }
 
+WEBUI_LAN_IP=""
+WEBUI_IP_TRIED=0
+webui_lan_ip() {
+    [ -f "$WEBUI_PY" ] && python3 "$WEBUI_PY" --lan-ip 2>/dev/null
+}
+refresh_webui_ip() {
+    [ "$WEBUI_IP_TRIED" -eq 1 ] && return
+    case "$WEB_HOST" in
+        ""|0.0.0.0|::) WEBUI_LAN_IP="$(webui_lan_ip)" ;;
+        127.0.0.1|localhost|::1) WEBUI_LAN_IP="" ;;
+        *) WEBUI_LAN_IP="$WEB_HOST" ;;
+    esac
+    WEBUI_IP_TRIED=1
+}
+show_webui_urls() {
+    printf "  This phone:     http://localhost:%s\n" "$WEB_PORT"
+    case "$WEB_HOST" in
+        127.0.0.1|localhost|::1)
+            echo "  Other devices:  disabled (Web UI is localhost-only)"
+            return
+            ;;
+    esac
+    refresh_webui_ip
+    if [ -n "$WEBUI_LAN_IP" ]; then
+        printf "  Other devices:  http://%s:%s\n" "$WEBUI_LAN_IP" "$WEB_PORT"
+        echo "  Connect them to the same Wi-Fi. No password is required."
+    else
+        echo "  Other devices:  Wi-Fi IP not detected; check the phone's Wi-Fi settings."
+    fi
+}
+
 webui_start() {
     if webui_running; then
-        echo "Web UI is already running at http://localhost:$WEB_PORT"
+        echo "Web UI is already running."
+        WEBUI_IP_TRIED=0
+        show_webui_urls
         return 0
     fi
     rm -f "$WEBUI_PID_FILE"
@@ -1457,7 +1544,9 @@ webui_start() {
     echo "$pid" > "$WEBUI_PID_FILE"
     sleep 0.8
     if webui_running; then
-        echo "Web UI started: http://localhost:$WEB_PORT"
+        echo "Web UI started."
+        WEBUI_IP_TRIED=0
+        show_webui_urls
         echo "Logs stay in $WEBUI_LOG (not on the dashboard)."
     else
         rm -f "$WEBUI_PID_FILE"
@@ -1479,6 +1568,8 @@ webui_stop() {
         rm -f "$WEBUI_PID_FILE"
         echo "Web UI is not running."
     fi
+    WEBUI_LAN_IP=""
+    WEBUI_IP_TRIED=0
 }
 
 webui_toggle() { webui_running && webui_stop || webui_start; }
@@ -1591,9 +1682,10 @@ Console Manager (ac):
   ac theme           Show saved style and all choices
   ac theme <style>   Save a style for Termux + Web
   ac webui           Toggle Web UI
-  ac webui-start     Start Web UI at http://localhost:$WEB_PORT
+  ac webui-start     Start Web UI and show local + Wi-Fi URLs
   ac webui-stop      Stop Web UI
-  ac webui-status    Show Web UI status (localhost, no password)
+  ac webui-status    Show Web UI status and URLs
+  ac webui-urls      Show local + same-Wi-Fi URLs again
 
 Dashboard keys:
   U / D       Move up / down
@@ -1645,6 +1737,21 @@ draw_full() {
         done
     fi
     printf "%b╠════════════════════════════════════════╣%b\n" "$C_BORDER" "$C_RESET"
+    if webui_running; then
+        refresh_webui_ip
+        printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_ACCENT" "Local: http://localhost:$WEB_PORT" "$C_BORDER" "$C_RESET"
+        case "$WEB_HOST" in
+            127.0.0.1|localhost|::1)
+                printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_MUTED" "Wi-Fi: disabled" "$C_BORDER" "$C_RESET" ;;
+            *)
+                if [ -n "$WEBUI_LAN_IP" ]; then
+                    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_ACCENT" "Wi-Fi: http://$WEBUI_LAN_IP:$WEB_PORT" "$C_BORDER" "$C_RESET"
+                else
+                    printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_MUTED" "Wi-Fi: IP not detected" "$C_BORDER" "$C_RESET"
+                fi ;;
+        esac
+        printf "%b╠════════════════════════════════════════╣%b\n" "$C_BORDER" "$C_RESET"
+    fi
     printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_ACCENT" "[U]Up [D]Down [L]Left [R]Right" "$C_BORDER" "$C_RESET"
     printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "[Enter]Open [C]reate [X]Delete" "$C_BORDER" "$C_RESET"
     printf "%b║%b  %-38s%b║%b\n" "$C_BORDER" "$C_TEXT" "[T]Style [N]Web [H]elp [Q]uit" "$C_BORDER" "$C_RESET"
@@ -1716,7 +1823,10 @@ case "${1:-}" in
     webui) webui_toggle ;;
     webui-start) webui_start ;;
     webui-stop) webui_stop ;;
-    webui-status) webui_status; echo ;;
+    webui-status)
+        webui_status; echo
+        if webui_running; then WEBUI_IP_TRIED=0; show_webui_urls; fi ;;
+    webui-urls) WEBUI_IP_TRIED=0; show_webui_urls ;;
     help|--help|-h) show_help ;;
     "") dashboard ;;
     *) echo "Unknown command."; show_help; exit 1 ;;
@@ -1737,6 +1847,14 @@ if ! bash "$PREFIX/bin/ac" webui-start >> "$INSTALL_LOG" 2>&1; then
     exit 1
 fi
 
+FINAL_WEB_HOST="${AC_WEB_HOST:-0.0.0.0}"
+FINAL_LAN_IP=""
+case "$FINAL_WEB_HOST" in
+    127.0.0.1|localhost|::1) ;;
+    ""|0.0.0.0|::) FINAL_LAN_IP="$(python3 "$DIR/webui.py" --lan-ip 2>/dev/null || true)" ;;
+    *) FINAL_LAN_IP="$FINAL_WEB_HOST" ;;
+esac
+
 ansi_clear
 printf "\033[1;35m╔══════════════════════════════════════════════════╗\033[0m\n"
 printf "\033[1;35m║\033[0m  \033[1m%-46s\033[0m\033[1;35m║\033[0m\n" "Installed Console Manager."
@@ -1746,8 +1864,19 @@ printf "  ✓ Style: %b%s\033[0m (preference saved)\n" "$(theme_ansi "$THEME_ID"
 printf "  ✓ Dependencies installed\n"
 printf "  ✓ Web dashboard started\n\n"
 printf "  Termux dashboard:  ac\n"
-printf "  Local dashboard:   http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
-printf "  Login:             No password required\n"
+printf "  This phone:        http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
+case "$FINAL_WEB_HOST" in
+    127.0.0.1|localhost|::1)
+        printf "  Other devices:     disabled (localhost-only mode)\n" ;;
+    *)
+        if [ -n "$FINAL_LAN_IP" ]; then
+            printf "  Other devices:     http://%s:%s\n" "$FINAL_LAN_IP" "${AC_WEB_PORT:-5000}"
+        else
+            printf "  Other devices:     Wi-Fi IP not detected\n"
+        fi ;;
+esac
+printf "  Show URLs again:   ac webui-urls\n"
+printf "  Login:             No password; use a trusted Wi-Fi network\n"
 printf "  Change style:      ac theme\n\n"
 printf "  Dashboard controls: U/D/L/R move, Enter opens, T changes style.\n"
 printf "\033[1;35m╚══════════════════════════════════════════════════╝\033[0m\n"
