@@ -75,7 +75,10 @@ INSTALLER_INPUT_FD=0
 INSTALLER_INTERACTIVE=0
 if [ -t 0 ]; then
     INSTALLER_INTERACTIVE=1
-elif exec 3</dev/tty 2>/dev/null; then
+elif (exec 3</dev/tty) 2>/dev/null; then
+    # Probe in a subshell first: a failed exec redirection must not terminate
+    # a non-interactive reinstall on a device with no controlling terminal.
+    exec 3</dev/tty
     INSTALLER_INPUT_FD=3
     INSTALLER_INTERACTIVE=1
 fi
@@ -215,6 +218,9 @@ commands entered from Termux before the web console was opened.
 """
 
 import http.server
+import base64
+import binascii
+import hmac
 import json
 import os
 import re
@@ -246,6 +252,7 @@ COMMAND_CACHE_LOCK = threading.Lock()
 HISTORY_LOCK = threading.Lock()
 PREFERENCES_LOCK = threading.Lock()
 PREFERENCES_FILE = BASE_DIR / "preferences.json"
+AUTH_KEY_FILE = BASE_DIR / "access-key.txt"
 WEB_THEMES = [
     {"id": "midnight", "name": "Midnight", "description": "Balanced blue"},
     {"id": "ocean", "name": "Ocean", "description": "Cool cyan"},
@@ -793,6 +800,45 @@ class ApiError(Exception):
         self.status = status
 
 
+def authentication_required():
+    # Any existing path fails closed, even if it is unreadable or not a file.
+    return os.path.lexists(AUTH_KEY_FILE)
+
+
+def access_key():
+    try:
+        return AUTH_KEY_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def valid_basic_auth(header):
+    if not authentication_required():
+        return True
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        supplied = base64.b64decode(header[6:].strip(), validate=True)
+    except (ValueError, binascii.Error):
+        return False
+    expected = b"manager:" + access_key().encode("utf-8")
+    return bool(access_key()) and hmac.compare_digest(supplied, expected)
+
+
+def valid_host_header(value):
+    # Reject DNS-rebinding hosts. Funnel device names always end in .ts.net.
+    host = (value or "").strip()
+    if host.startswith("[") and "]" in host:
+        host = host[1:host.index("]")]
+    elif host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    host = host.lower().rstrip(".")
+    allowed = {"localhost", "127.0.0.1", "::1"}
+    if WEB_HOST not in ("", "0.0.0.0", "::"):
+        allowed.add(WEB_HOST.lower())
+    return host in allowed or host.endswith(".ts.net")
+
+
 def load_preferences():
     try:
         data = json.loads(PREFERENCES_FILE.read_text(encoding="utf-8"))
@@ -1134,6 +1180,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "ConsoleManager/3.0"
     sys_version = ""
 
+    def request_allowed(self):
+        if not valid_host_header(self.headers.get("Host", "")):
+            self.send_json({"ok": False, "error": "This hostname is not allowed."}, 403)
+            return False
+        if not valid_basic_auth(self.headers.get("Authorization", "")):
+            body = json.dumps({"ok": False, "error": "Console Manager access key required."}).encode("utf-8")
+            self.send_response(401)
+            self.common_headers()
+            self.send_header("WWW-Authenticate", 'Basic realm="Console Manager", charset="UTF-8"')
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return False
+        return True
+
     # Never write HTTP access logs to the terminal running the ac dashboard.
     def log_message(self, *args):
         return
@@ -1194,6 +1256,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": "Internal Web UI error; see ~/.ac-consoles/webui.log."}, 500)
 
     def do_GET(self):
+        if not self.request_allowed():
+            return
         try:
             parsed = urllib.parse.urlsplit(self.path)
             query = urllib.parse.parse_qs(parsed.query)
@@ -1215,6 +1279,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.handle_exception(error)
 
     def do_POST(self):
+        if not self.request_allowed():
+            return
         try:
             path = urllib.parse.urlsplit(self.path).path
             body = self.read_body()
@@ -1265,11 +1331,19 @@ WEBUI_PY="$DIR/webui.py"
 WEBUI_PID_FILE="$DIR/webui.pid"
 WEBUI_LOG="$DIR/webui.log"
 PREFERENCES_FILE="$DIR/preferences.json"
+AUTH_KEY_FILE="$DIR/access-key.txt"
+HTTPS_URL_FILE="$DIR/https-url.txt"
+TS_DIR="$DIR/tailscale"
+TS_SOCKET="$TS_DIR/tailscaled.sock"
+TS_STATE="$TS_DIR/tailscaled.state"
+TS_LOG="$TS_DIR/tailscaled.log"
+TS_PID_FILE="$TS_DIR/tailscaled.pid"
 WEB_HOST="${AC_WEB_HOST:-127.0.0.1}"
 WEB_PORT="${AC_WEB_PORT:-5000}"
 export SCREENDIR="$HOME/.screen"
 mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$SCREENDIR"
 chmod 700 "$SCREENDIR" "$DIR" "$DIR/output" "$DIR/history"
+export PATH="$DIR/bin:$PATH"
 
 auto_install() {
     local missing=()
@@ -1425,6 +1499,193 @@ webui_stop() {
 webui_toggle() { webui_running && webui_stop || webui_start; }
 webui_status() { webui_running && printf "Web:ON :%s" "$WEB_PORT" || printf "Web:OFF"; }
 
+install_tailscale_static() {
+    if command -v tailscale >/dev/null 2>&1 && command -v tailscaled >/dev/null 2>&1; then return 0; fi
+    mkdir -p "$DIR/bin" "$DIR/downloads"
+    echo "Installing Tailscale's official static binaries (curl is not needed)..."
+    python3 - "$DIR" <<'PYTAILSCALE'
+import hashlib
+import json
+import os
+import platform
+import shutil
+import sys
+import tarfile
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+base = Path(sys.argv[1])
+machine = platform.machine().lower()
+if machine in ("aarch64", "arm64"):
+    architecture = "arm64"
+elif machine.startswith("arm"):
+    architecture = "arm"
+elif machine in ("x86_64", "amd64"):
+    architecture = "amd64"
+elif machine in ("i386", "i486", "i586", "i686"):
+    architecture = "386"
+else:
+    raise SystemExit("Unsupported Tailscale architecture: " + machine)
+
+index_url = os.environ.get("AC_TS_INDEX_URL", "https://pkgs.tailscale.com/stable/?mode=json")
+base_url = os.environ.get("AC_TS_BASE_URL", "https://pkgs.tailscale.com/stable/")
+with urllib.request.urlopen(index_url, timeout=60) as response:
+    index = json.load(response)
+try:
+    tarball = index["Tarballs"][architecture]
+except KeyError:
+    raise SystemExit("Tailscale's stable index has no package for " + architecture)
+url = urllib.parse.urljoin(base_url, tarball)
+archive = base / "downloads" / tarball
+archive.parent.mkdir(parents=True, exist_ok=True)
+with urllib.request.urlopen(url, timeout=120) as response, archive.open("wb") as output:
+    shutil.copyfileobj(response, output, 1024 * 1024)
+with urllib.request.urlopen(url + ".sha256", timeout=60) as response:
+    expected = response.read().decode("ascii").split()[0].lower()
+digest = hashlib.sha256()
+with archive.open("rb") as source:
+    for block in iter(lambda: source.read(1024 * 1024), b""):
+        digest.update(block)
+if digest.hexdigest().lower() != expected:
+    archive.unlink(missing_ok=True)
+    raise SystemExit("Tailscale download failed SHA-256 verification; nothing was installed.")
+
+bin_dir = base / "bin"
+bin_dir.mkdir(parents=True, exist_ok=True)
+found = set()
+with tarfile.open(archive, "r:gz") as package:
+    for member in package.getmembers():
+        name = member.name.rsplit("/", 1)[-1]
+        if name not in ("tailscale", "tailscaled") or not member.isfile():
+            continue
+        source = package.extractfile(member)
+        if source is None:
+            continue
+        target = bin_dir / name
+        temporary = target.with_suffix(".tmp")
+        with source, temporary.open("wb") as output:
+            shutil.copyfileobj(source, output, 1024 * 1024)
+        temporary.chmod(0o700)
+        os.replace(temporary, target)
+        found.add(name)
+if found != {"tailscale", "tailscaled"}:
+    raise SystemExit("The Tailscale archive did not contain both required binaries.")
+archive.unlink(missing_ok=True)
+print("Tailscale " + tarball + " downloaded and verified.")
+PYTAILSCALE
+}
+
+ensure_access_key() {
+    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
+        python3 - "$AUTH_KEY_FILE" <<'PYAUTH'
+import secrets
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+path.write_text(secrets.token_urlsafe(24) + "\n", encoding="utf-8")
+path.chmod(0o600)
+PYAUTH
+    fi
+    chmod 600 "$AUTH_KEY_FILE" && [ -f "$AUTH_KEY_FILE" ] && [ -s "$AUTH_KEY_FILE" ]
+}
+
+ts_cli() { tailscale --socket "$TS_SOCKET" "$@"; }
+tailscaled_running() {
+    [ -e "$TS_SOCKET" ] || return 1
+    ts_cli status --json >/dev/null 2>&1
+}
+start_tailscaled() {
+    install_tailscale_static || return 1
+    mkdir -p "$TS_DIR"
+    chmod 700 "$TS_DIR"
+    if tailscaled_running; then return 0; fi
+    local pid="" already=0
+    if [ -f "$TS_PID_FILE" ]; then
+        pid="$(cat "$TS_PID_FILE" 2>/dev/null)"
+        case "$pid" in ''|*[!0-9]*) ;; *) kill -0 "$pid" 2>/dev/null && already=1 ;; esac
+    fi
+    if [ "$already" -eq 0 ]; then
+        rm -f "$TS_SOCKET"
+        if command -v setsid >/dev/null 2>&1; then
+            nohup setsid tailscaled --tun=userspace-networking --state="$TS_STATE" --socket="$TS_SOCKET" --port=41641 </dev/null >>"$TS_LOG" 2>&1 &
+        else
+            nohup tailscaled --tun=userspace-networking --state="$TS_STATE" --socket="$TS_SOCKET" --port=41641 </dev/null >>"$TS_LOG" 2>&1 &
+        fi
+        echo "$!" > "$TS_PID_FILE"
+    fi
+    local i
+    for i in {1..40}; do
+        tailscaled_running && return 0
+        sleep 0.25
+    done
+    echo "Tailscale daemon did not start. See $TS_LOG"
+    return 1
+}
+ts_backend_state() {
+    ts_cli status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState", ""))' 2>/dev/null
+}
+ts_dns_name() {
+    ts_cli status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("Self", {}).get("DNSName", "").rstrip("."))' 2>/dev/null
+}
+https_key() {
+    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
+        echo "No access key yet. Run: ac https-setup"
+        return 1
+    fi
+    printf "Browser username: manager\nBrowser password/access key: %s\n" "$(cat "$AUTH_KEY_FILE")"
+}
+https_setup() {
+    echo "Console Manager permanent HTTPS setup (Tailscale Funnel)"
+    install_tailscale_static || return 1
+    # Authentication MUST exist before any public Funnel route is enabled.
+    ensure_access_key || { echo "Could not create the access key; HTTPS was not enabled."; return 1; }
+    webui_running || webui_start || return 1
+    start_tailscaled || return 1
+    if [ "$(ts_backend_state)" != "Running" ]; then
+        echo "Tailscale will show a sign-in URL. Open it on this phone and approve the device."
+        ts_cli up --hostname=console-manager || return 1
+    fi
+    echo "Enabling HTTPS on port 443. If Tailscale shows a Funnel approval URL, open and approve it."
+    ensure_access_key || { echo "Access-key verification failed; HTTPS was not enabled."; return 1; }
+    ts_cli funnel --bg --https=443 "http://127.0.0.1:$WEB_PORT" || return 1
+    local url="$(ts_dns_name)"
+    [ -n "$url" ] || { echo "Funnel was enabled, but its DNS name could not be read. Run: ac https-status"; return 1; }
+    printf "%s\n" "https://$url" > "$HTTPS_URL_FILE"
+    chmod 600 "$HTTPS_URL_FILE"
+    printf "\nHTTPS enabled: https://%s\n" "$url"
+    echo "This hostname stays tied to the saved Tailscale device in $TS_DIR."
+    https_key
+    echo "Keep this key private. Anyone with the URL and key can control your consoles."
+    echo "The phone, Web UI, and Tailscale daemon must stay online for the URL to work."
+}
+https_start() {
+    if [ ! -f "$AUTH_KEY_FILE" ] || [ ! -s "$AUTH_KEY_FILE" ]; then
+        echo "Run 'ac https-setup' first so public access is protected."
+        return 1
+    fi
+    webui_running || webui_start || return 1
+    start_tailscaled || return 1
+    [ "$(ts_backend_state)" = "Running" ] || { echo "Tailscale needs sign-in. Run: ac https-setup"; return 1; }
+    ensure_access_key || { echo "Access-key verification failed; HTTPS was not enabled."; return 1; }
+    ts_cli funnel --bg --https=443 "http://127.0.0.1:$WEB_PORT" || return 1
+    local url="$(ts_dns_name)"
+    [ -n "$url" ] || { echo "Funnel started, but its DNS name could not be read. Run: ac https-status"; return 1; }
+    printf "%s\n" "https://$url" > "$HTTPS_URL_FILE"
+    chmod 600 "$HTTPS_URL_FILE"
+    printf "HTTPS started: https://%s\n" "$url"
+}
+https_stop() {
+    if [ -e "$TS_SOCKET" ]; then ts_cli funnel --https=443 off || return 1; fi
+    rm -f "$HTTPS_URL_FILE"
+    echo "Public HTTPS stopped. Localhost remains available and access-key protected."
+}
+https_status() {
+    if [ -f "$HTTPS_URL_FILE" ]; then printf "Saved URL: %s\n" "$(cat "$HTTPS_URL_FILE")"; fi
+    if tailscaled_running; then ts_cli funnel status;
+    else echo "Tailscale is not running. Start with: ac https-start"; fi
+}
+
 list_names() {
     screen -ls 2>/dev/null | sed -n "s/^[[:space:]]*[0-9]*\.${SESSION_PREFIX}\([A-Za-z0-9][A-Za-z0-9_-]*\).*/\1/p"
 }
@@ -1535,6 +1796,11 @@ Console Manager (ac):
   ac webui-start     Start Web UI at http://localhost:$WEB_PORT
   ac webui-stop      Stop Web UI
   ac webui-status    Show Web UI status
+  ac https-setup     Set up permanent Tailscale HTTPS + access key
+  ac https-start     Restart saved HTTPS after Termux/device restart
+  ac https-stop      Disable public Funnel access
+  ac https-status    Show Funnel status and saved URL
+  ac https-key       Show browser username and access key
 
 Dashboard keys:
   U / D       Move up / down
@@ -1658,6 +1924,11 @@ case "${1:-}" in
     webui-start) webui_start ;;
     webui-stop) webui_stop ;;
     webui-status) webui_status; echo ;;
+    https-setup|https-enable) https_setup ;;
+    https-start) https_start ;;
+    https-stop) https_stop ;;
+    https-status) https_status ;;
+    https-key) https_key ;;
     help|--help|-h) show_help ;;
     "") dashboard ;;
     *) echo "Unknown command."; show_help; exit 1 ;;
@@ -1688,6 +1959,7 @@ printf "  ✓ Dependencies installed\n"
 printf "  ✓ Web dashboard started\n\n"
 printf "  Termux dashboard:  ac\n"
 printf "  Web dashboard:     http://localhost:%s\n" "${AC_WEB_PORT:-5000}"
-printf "  Change style:      ac theme\n\n"
+printf "  Change style:      ac theme\n"
+printf "  Permanent HTTPS:   ac https-setup\n\n"
 printf "  Dashboard controls: U/D/L/R move, Enter opens, T changes style.\n"
 printf "\033[1;36m╚══════════════════════════════════════════════════╝\033[0m\n"
