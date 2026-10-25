@@ -82,10 +82,19 @@ ok "launcher activity present"
 echo "$BADGING" | grep -q "application-icon-" \
     || die "launcher icon missing"
 ok "launcher icon bundled"
+echo "$BADGING" | grep -qi "leanback" \
+    || die "no Android TV category in the manifest"
+ok "declares Android TV support (leanback launcher)"
+unzip -l "$OUT_DIR/unsigned.apk" | grep -q "res/drawable-xhdpi-v4/banner.png" \
+    || die "TV banner missing"
+ok "TV home-screen banner bundled"
+"$AAPT2_BIN" dump xmltree --file AndroidManifest.xml "$OUT_DIR/unsigned.apk" \
+    | grep -q "BOOT_COMPLETED" || die "boot receiver missing from the manifest"
+ok "boot receiver registered"
 unzip -l "$OUT_DIR/unsigned.apk" | grep -q "assets/index.html" \
     || die "assets/index.html is missing"
 ok "offline UI (assets/index.html) bundled"
-for c in MainActivity JsBridge MainActivity\$1 JsBridge\$5; do
+for c in MainActivity JsBridge JsBridge\$5 JsBridge\$7 BootReceiver Prefs; do
     unzip -p "$OUT_DIR/unsigned.apk" classes.dex | grep -qa "$c" \
         || die "class $c missing from classes.dex"
 done

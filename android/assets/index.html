@@ -9,7 +9,8 @@
   :root{
     --bg:#0B0910; --card:#141120; --card2:#1A1628; --line:#282138;
     --text:#EDEAF5; --muted:#9A93AE; --accent:#8B5CF6; --accent2:#A78BFA;
-    --cyan:#22D3EE; --ok:#34D399; --bad:#F87171; --warn:#FBBF24;
+    --cyan:#22D3EE; --ok:#34D399; --bad:#F87171; --warn:#FBBF24; --focus:#C4B5FD;
+    --r:16px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
@@ -17,86 +18,129 @@
     background:var(--bg); color:var(--text);
     font-family:-apple-system,"Roboto","Segoe UI",system-ui,sans-serif;
     font-size:15px; line-height:1.45; min-height:100vh;
-    padding:0 14px calc(24px + env(safe-area-inset-bottom));
+    padding:0 16px calc(28px + env(safe-area-inset-bottom));
+    outline:none;
   }
   body::before{
-    content:""; position:fixed; inset:-20% -20% auto -20%; height:280px; z-index:-1;
-    background:radial-gradient(60% 60% at 30% 0%,rgba(139,92,246,.34),transparent 70%),
-               radial-gradient(50% 50% at 95% 10%,rgba(34,211,238,.20),transparent 70%);
+    content:""; position:fixed; inset:-25% -20% auto -20%; height:340px; z-index:-1;
+    background:radial-gradient(55% 55% at 26% 0%,rgba(139,92,246,.34),transparent 70%),
+               radial-gradient(45% 45% at 96% 8%,rgba(34,211,238,.20),transparent 70%);
     filter:blur(6px); pointer-events:none;
   }
-  header{display:flex;align-items:center;gap:11px;padding:18px 2px 14px}
-  .mark{
-    width:38px;height:38px;border-radius:12px;flex:0 0 auto;display:grid;place-items:center;
-    background:linear-gradient(140deg,#8B5CF6,#22D3EE);
-    box-shadow:0 6px 18px rgba(139,92,246,.35);
-  }
-  .mark svg{width:21px;height:21px;display:block}
+  .wrap{max-width:860px;margin:0 auto}
+
+  header{display:flex;align-items:center;gap:12px;padding:20px 2px 14px}
+  .mark{width:40px;height:40px;border-radius:13px;flex:0 0 auto;display:grid;place-items:center;
+    background:linear-gradient(140deg,#8B5CF6,#22D3EE);box-shadow:0 6px 18px rgba(139,92,246,.35)}
+  .mark svg{width:22px;height:22px;display:block}
   .titles{min-width:0;flex:1}
-  h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
-  .titles p{margin:1px 0 0;font-size:11.5px;color:var(--muted);letter-spacing:.3px}
-  .pill{
-    font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;
-    padding:6px 10px;border-radius:999px;border:1px solid var(--line);
-    background:var(--card); color:var(--muted); white-space:nowrap;
+  h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+  .titles p{margin:2px 0 0;font-size:12px;color:var(--muted);letter-spacing:.3px}
+  .pill{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+    padding:7px 11px;border-radius:999px;border:1px solid var(--line);
+    background:var(--card);color:var(--muted);white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.1)}
+  .pill.bad{color:var(--bad);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.1)}
+  .pill.wait{color:var(--warn);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.1)}
+
+  /* tabs: reachable with the TV remote's left/right arrows */
+  nav{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+  nav button{
+    flex:1 1 auto;min-width:120px;font-size:14px;font-weight:650;color:var(--muted);
+    background:var(--card);border:1px solid var(--line);border-radius:13px;
+    padding:12px 10px;min-height:50px;cursor:pointer
   }
-  .pill.ok{color:var(--ok);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.09)}
-  .pill.bad{color:var(--bad);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.09)}
-  .pill.wait{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.09)}
-  main{display:flex;flex-direction:column;gap:12px}
-  .card{
-    background:linear-gradient(180deg,var(--card),var(--card2));
-    border:1px solid var(--line); border-radius:18px; padding:15px;
-    box-shadow:0 10px 26px rgba(0,0,0,.35);
+  nav button[aria-selected="true"]{
+    color:#fff;background:linear-gradient(135deg,var(--accent),#6D5AE6);
+    border-color:transparent;box-shadow:0 8px 20px rgba(109,90,230,.32)
   }
-  h2{font-size:12px;margin:0 0 10px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);font-weight:650}
-  label.fld{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;letter-spacing:.3px}
-  input[type=url]{
-    width:100%;padding:12px 13px;border-radius:13px;border:1px solid var(--line);
-    background:#0F0C19;color:var(--text);font-size:14px;font-family:inherit;
-    outline:none;transition:border-color .15s,box-shadow .15s;
+
+  main{display:flex;flex-direction:column;gap:13px}
+  section.pane{display:none;flex-direction:column;gap:13px}
+  section.pane.active{display:flex}
+
+  .card{background:linear-gradient(180deg,var(--card),var(--card2));
+    border:1px solid var(--line);border-radius:var(--r);padding:16px;
+    box-shadow:0 10px 26px rgba(0,0,0,.35)}
+  h2{font-size:12px;margin:0 0 11px;letter-spacing:1.1px;text-transform:uppercase;
+    color:var(--muted);font-weight:700}
+  label.fld{display:block;font-size:12.5px;color:var(--muted);margin:0 0 7px;letter-spacing:.3px}
+  input[type=url],input[type=text]{
+    width:100%;padding:13px 14px;border-radius:13px;border:1px solid var(--line);
+    background:#0F0C19;color:var(--text);font-size:15px;font-family:inherit;outline:none
   }
-  input[type=url]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(139,92,246,.18)}
-  .row{display:flex;gap:9px;margin-top:11px}
-  .row>*{flex:1}
+  input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(139,92,246,.2)}
+  .row{display:flex;gap:9px;margin-top:11px;flex-wrap:wrap}
+  .row>*{flex:1 1 150px}
   button{
-    font-family:inherit;font-size:14px;font-weight:600;color:var(--text);
+    font-family:inherit;font-size:14.5px;font-weight:650;color:var(--text);
     background:var(--card2);border:1px solid var(--line);border-radius:13px;
-    padding:12px 14px;min-height:46px;cursor:pointer;
-    transition:transform .08s ease,filter .15s ease,background .15s;
+    padding:13px 14px;min-height:50px;cursor:pointer;
+    transition:filter .12s,background .15s
   }
-  button:active{transform:scale(.975);filter:brightness(1.15)}
-  button.primary{
-    background:linear-gradient(135deg,var(--accent),#6D5AE6);border-color:transparent;
-    box-shadow:0 8px 20px rgba(109,90,230,.34);
+  /* TV remote focus ring - the whole point of the large hit areas */
+  button:focus,button:focus-visible,nav button:focus{
+    outline:none;border-color:var(--focus);
+    box-shadow:0 0 0 3px rgba(196,181,253,.55),0 8px 22px rgba(0,0,0,.4)
   }
+  button.primary{background:linear-gradient(135deg,var(--accent),#6D5AE6);border-color:transparent;
+    box-shadow:0 8px 20px rgba(109,90,230,.34)}
   button.ghost{background:#171325}
-  button:disabled{opacity:.5}
-  .switch{display:flex;align-items:center;gap:10px;margin-top:13px;font-size:13px;color:var(--muted)}
-  .switch input{appearance:none;width:44px;height:26px;border-radius:99px;background:#231E33;
-    border:1px solid var(--line);position:relative;flex:0 0 auto;transition:background .18s;margin:0}
+  button:disabled{opacity:.45}
+  .switch{display:flex;align-items:center;gap:11px;margin-top:13px;font-size:13.5px;color:var(--muted)}
+  .switch input{appearance:none;width:46px;height:28px;border-radius:99px;background:#231E33;
+    border:1px solid var(--line);position:relative;flex:0 0 auto;margin:0;cursor:pointer}
   .switch input:checked{background:linear-gradient(135deg,var(--accent),#6D5AE6);border-color:transparent}
-  .switch input::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;
-    background:#EDEAF5;transition:transform .18s}
+  .switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;
+    border-radius:50%;background:#EDEAF5;transition:transform .18s}
   .switch input:checked::after{transform:translateX(18px)}
-  .conn{
-    font-size:13px;padding:12px 13px;border-radius:13px;background:#0F0C19;
-    border:1px solid var(--line);color:var(--muted);word-break:break-word;
-  }
+  .switch input:focus{outline:none;box-shadow:0 0 0 3px rgba(196,181,253,.55)}
+
+  .conn{font-size:13.5px;padding:13px 14px;border-radius:13px;background:#0F0C19;
+    border:1px solid var(--line);color:var(--muted);word-break:break-word}
   .conn.ok{color:#BBF7D0;border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.07)}
   .conn.bad{color:#FECACA;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.07)}
+
+  /* the big "other devices on this Wi-Fi" address, readable from the sofa */
+  .bigurl{font:700 24px/1.25 ui-monospace,"Roboto Mono",monospace;color:var(--cyan);
+    word-break:break-all;margin:2px 0 4px}
+  .bigurl.empty{color:var(--muted);font-size:16px;font-weight:600}
+  .hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-  .grid button{min-height:52px;font-size:13.5px}
-  .note ul{margin:0;padding-left:18px;color:var(--muted);font-size:13px}
-  .note li{margin:5px 0}
-  .note b{color:var(--text);font-weight:600}
-  code{background:#0F0C19;border:1px solid var(--line);border-radius:6px;padding:1px 5px;font-size:12px}
-  footer{margin:16px 2px 0;font-size:11.5px;color:#6E6785;text-align:center;line-height:1.6}
-  .warnbox{display:none;margin-top:10px;font-size:12.5px;color:var(--warn)}
-  .warnbox.show{display:block}
+  .steps{list-style:none;margin:0;padding:0;counter-reset:step;display:flex;flex-direction:column;gap:11px}
+  .steps li{counter-increment:step;display:flex;gap:11px;font-size:13.5px;color:var(--muted)}
+  .steps li::before{content:counter(step);flex:0 0 auto;width:24px;height:24px;border-radius:8px;
+    display:grid;place-items:center;font-weight:700;font-size:12px;color:#fff;
+    background:linear-gradient(140deg,var(--accent),#6D5AE6)}
+  .steps b{color:var(--text);font-weight:650}
+  code{background:#0F0C19;border:1px solid var(--line);border-radius:7px;padding:2px 6px;
+    font-size:12.5px;color:#D8D2EA;word-break:break-all}
+  .cmdbox{margin-top:9px;padding:11px 12px;border-radius:11px;background:#0F0C19;
+    border:1px dashed var(--line);font:12px/1.5 ui-monospace,"Roboto Mono",monospace;
+    color:#C9C2E0;word-break:break-all;max-height:96px;overflow:auto}
+  .note{font-size:12.5px;color:var(--muted)}
+  footer{margin:18px 2px 0;font-size:11.5px;color:#6E6785;text-align:center;line-height:1.6}
+
+  /* TV / big screen: fewer columns, larger type */
+  @media (min-width:900px),(min-height:700px) and (min-width:700px){
+    body{font-size:17px;padding:0 34px 40px}
+    header{padding:34px 4px 22px}
+    h1{font-size:24px}
+    .titles p{font-size:13.5px}
+    .mark{width:50px;height:50px;border-radius:15px}
+    .mark svg{width:28px;height:28px}
+    nav button{min-height:60px;font-size:16px}
+    button{min-height:60px;font-size:16px}
+    input[type=url],input[type=text]{padding:16px 18px;font-size:17px}
+    .bigurl{font-size:32px}
+    h2{font-size:13px}
+    .conn{font-size:15px}
+    .steps li{font-size:15px}
+  }
 </style>
 </head>
 <body>
+<div class="wrap">
 
 <header>
   <div class="mark" aria-hidden="true">
@@ -104,264 +148,633 @@
   </div>
   <div class="titles">
     <h1>Relay Dashboard</h1>
-    <p id="sub">Android shell · v1.0</p>
+    <p id="sub">Android shell · v1.1</p>
   </div>
   <span class="pill" id="status">idle</span>
 </header>
 
+<nav role="tablist" aria-label="Sections">
+  <button role="tab" data-pane="home" aria-selected="true" id="tab-home">Dashboard</button>
+  <button role="tab" data-pane="tvhost" aria-selected="false" id="tab-tvhost">TV host</button>
+  <button role="tab" data-pane="remote" aria-selected="false" id="tab-remote">Remote</button>
+  <button role="tab" data-pane="settings" aria-selected="false" id="tab-settings">Setup</button>
+</nav>
+
 <main>
-  <section class="card">
-    <label class="fld" for="url">Dashboard URL</label>
-    <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
-           autocorrect="off" spellcheck="false" placeholder="https://your-site.example/dashboard.html">
-    <div class="row">
-      <button id="open" class="primary">Open dashboard</button>
-      <button id="save" class="ghost">Save</button>
+  <!-- ── dashboard ─────────────────────────────────────────────── -->
+  <section class="pane active" id="pane-home">
+    <div class="card">
+      <label class="fld" for="url">Dashboard URL</label>
+      <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="https://your-site.example/dashboard.html">
+      <div class="row">
+        <button id="open" class="primary">Open dashboard</button>
+        <button id="save" class="ghost">Save</button>
+      </div>
+      <div class="conn" id="urlwarn" style="display:none;margin-top:11px">
+        Enter a full URL starting with http:// or https://
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="auto">
+        <span>Open this dashboard automatically when the app starts</span>
+      </label>
     </div>
-    <div class="warnbox" id="urlwarn">Enter a full URL starting with http:// or https://</div>
-    <label class="switch">
-      <input type="checkbox" id="auto">
-      <span>Open it automatically when the app starts</span>
-    </label>
+
+    <div class="card">
+      <h2>Connection</h2>
+      <div class="conn" id="conn">Nothing saved yet. Paste a URL above.</div>
+      <div class="row">
+        <button id="check" class="ghost">Check connection</button>
+        <button id="browser" class="ghost">Open in browser</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quick actions</h2>
+      <div class="grid">
+        <button data-act="reload">Reload</button>
+        <button data-act="copy">Copy URL</button>
+        <button data-act="clear">Clear saved data</button>
+        <button data-act="about">About</button>
+      </div>
+    </div>
   </section>
 
-  <section class="card">
-    <h2>Connection</h2>
-    <div class="conn" id="conn">Not checked yet.</div>
-    <div class="row">
-      <button id="check" class="ghost">Check connection</button>
-      <button id="browser" class="ghost">Open in browser</button>
+  <!-- ── tv host ──────────────────────────────────────────────── -->
+  <section class="pane" id="pane-tvhost">
+    <div class="card">
+      <h2>Console host — open from any device on this Wi-Fi</h2>
+      <div class="bigurl empty" id="hosturl">Detecting this TV's Wi-Fi address…</div>
+      <p class="hint" id="hosthint">
+        Console Manager's web UI listens on port 5000. This address works from
+        your phone, laptop or tablet on the same network — no password.
+      </p>
+      <div class="row">
+        <button id="hostopen" class="primary">Open on this TV</button>
+        <button id="hostcopy" class="ghost">Copy address</button>
+        <button id="hostcheck" class="ghost">Check host</button>
+      </div>
+      <div class="conn" id="hostconn" style="margin-top:11px">Not checked yet.</div>
+    </div>
+
+    <div class="card">
+      <h2>Make the TV host it by itself</h2>
+      <ol class="steps">
+        <li><span>Install <b>Termux</b> on the TV (first-run setup needs internet).</span></li>
+        <li><span>Paste the setup command into Termux once — it installs Python,
+          GNU Screen and Console Manager, then hooks the host to power-on.</span></li>
+        <li><span>Turn on <b>Start on boot</b> in the Setup tab so this app opens
+          itself after the TV powers on.</span></li>
+        <li><span>The host then loads automatically; other devices open
+          <code id="stepurl">http://&lt;tv-ip&gt;:5000</code>.</span></li>
+      </ol>
+      <button class="ghost" id="runinstall" style="margin-top:12px">Send setup command to Termux</button>
+      <div class="cmdbox" id="installcmd"></div>
     </div>
   </section>
 
-  <section class="card">
-    <h2>Quick actions</h2>
-    <div class="grid">
-      <button data-act="reload">Reload</button>
-      <button data-act="copy">Copy URL</button>
-      <button data-act="clear">Clear saved data</button>
-      <button data-act="about">About</button>
+  <!-- ── remote (termux bridge) ───────────────────────────────── -->
+  <section class="pane" id="pane-remote">
+    <div class="card">
+      <h2>Remote control for Termux</h2>
+      <div class="conn" id="termuxstate">Checking whether Termux is installed…</div>
+      <div class="grid" style="margin-top:11px">
+        <button id="ac-start">Start console host</button>
+        <button id="ac-urls">Show host URLs</button>
+        <button id="ac-dash">Open Termux dashboard</button>
+        <button id="ac-app">Open Termux app</button>
+      </div>
+      <div class="conn" id="remoteout" style="margin-top:11px">
+        Buttons here hand a command to Termux. Termux must allow it once
+        (<code>allow-external-apps=true</code> in <code>~/.termux/termux.properties</code>,
+        then restart Termux).
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Run a command</h2>
+      <label class="fld" for="cmd">Shell command (runs as you, inside Termux)</label>
+      <input id="cmd" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+             spellcheck="false" value="bash cm">
+      <div class="row">
+        <button id="cmdsend" class="primary">Send to Termux</button>
+        <button id="cmdreset" class="ghost">Reset</button>
+      </div>
+      <p class="hint">Only what you type is sent — nothing runs on its own.</p>
     </div>
   </section>
 
-  <section class="card note">
-    <h2>Good to know</h2>
-    <ul>
-      <li>The <b>Android Back button</b> comes back to this screen, then exits.</li>
-      <li>Long pages zoom a little awkwardly on small phones — pinch works.</li>
-      <li>Only <code>http</code> and <code>https</code> links open inside the app;
-          <code>mailto:</code>, <code>tel:</code> and other apps open externally.</li>
-      <li>Nothing is uploaded anywhere. Your URL is stored on this phone only.</li>
-    </ul>
+  <!-- ── setup / settings ─────────────────────────────────────── -->
+  <section class="pane" id="pane-settings">
+    <div class="card">
+      <h2>This device</h2>
+      <div class="conn" id="deviceinfo">Detecting…</div>
+    </div>
+
+    <div class="card">
+      <h2>Startup</h2>
+      <label class="switch">
+        <input type="checkbox" id="boot">
+        <span>Start on boot — open this app when the TV powers on</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="tvcopy">
+        <span id="tvcopylabel">Keep the console host address handy in the TV host tab</span>
+      </label>
+      <p class="hint">
+        “Start on boot” needs Termux already set up — otherwise the TV just shows
+        this screen until you install it.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Server address used by other devices</h2>
+      <label class="fld" for="hostip">TV's Wi-Fi address (auto-detected, editable)</label>
+      <input id="hostip" type="text" inputmode="url" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="192.168.1.50">
+      <div class="row">
+        <button id="hostsave" class="ghost">Save address</button>
+        <button id="hostrediscover" class="ghost">Detect again</button>
+      </div>
+      <p class="hint">Port <b>5000</b> is used by Console Manager. Change it only if you
+        started the host on another port.</p>
+    </div>
   </section>
 </main>
 
-<footer id="foot">Relay Dashboard APK · no trackers · works offline until you open a URL</footer>
+<footer id="foot">Relay Dashboard APK · remote-friendly · no trackers</footer>
+</div>
 
 <script>
 (function () {
   "use strict";
 
   var K_URL = "rd.url", K_AUTO = "rd.auto", K_OPENED = "rd.autoOpened";
+  var K_HOST_IP = "rd.hostIp", K_HOST_PORT = "rd.hostPort", K_PANE = "rd.pane";
+  var DEFAULT_PORT = "5000";
+  /* One command: installs Console Manager, allows this app to drive Termux,
+     starts the host and hook it to power-on. Same script as tv-autostart.txt. */
+  var REPO_RAW = "https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main";
+  var INSTALL_CMD =
+    "python3 -c 'import urllib.request as u,subprocess as s;" +
+    "u.urlretrieve(\"" + REPO_RAW + "/tv-autostart.txt\",\"tv\");" +
+    "s.run([\"bash\",\"tv\"],check=True)'";
+  var TV_HOST = "bash $HOME/tv-autostart.txt";
+
   var $ = function (id) { return document.getElementById(id); };
   var bridge = (typeof window.And !== "undefined") ? window.And : null;
   var hasStorage = true;
-  try { window.localStorage.setItem("rd.test", "1"); window.localStorage.removeItem("rd.test"); }
+  try { localStorage.setItem("rd.t", "1"); localStorage.removeItem("rd.t"); }
   catch (e) { hasStorage = false; }
 
   var el = {
     url: $("url"), open: $("open"), save: $("save"), auto: $("auto"),
-    status: $("status"), conn: $("conn"), check: $("check"),
-    browser: $("browser"), warn: $("urlwarn"), sub: $("sub"), foot: $("foot")
+    status: $("status"), conn: $("conn"), check: $("check"), browser: $("browser"),
+    warn: $("urlwarn"), sub: $("sub"),
+    hosturl: $("hosturl"), hosthint: $("hosthint"), hostopen: $("hostopen"),
+    hostcopy: $("hostcopy"), hostcheck: $("hostcheck"), hostconn: $("hostconn"),
+    hostip: $("hostip"), hostsave: $("hostsave"), hostrediscover: $("hostrediscover"),
+    stepurl: $("stepurl"), installcmd: $("installcmd"), runinstall: $("runinstall"),
+    termuxstate: $("termuxstate"), remoteout: $("remoteout"),
+    cmd: $("cmd"), cmdsend: $("cmdsend"), cmdreset: $("cmdreset"),
+    boot: $("boot"), deviceinfo: $("deviceinfo"), tvcopy: $("tvcopy")
   };
 
-  if (!bridge) {
-    el.sub.textContent = bridge ? "" : "Browser preview · bridge unavailable";
-  }
-  el.sub.textContent = bridge ? "Android shell · v1.0" : "Browser preview (no native bridge)";
-
-  function store(k, v) { if (!hasStorage) return; try { localStorage.setItem(k, v); } catch (e) {} }
+  function store(k, v) { if (hasStorage) { try { localStorage.setItem(k, v); } catch (e) {} } }
   function recall(k) { if (!hasStorage) return ""; try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
-  function forget(k) { if (!hasStorage) return; try { localStorage.removeItem(k); } catch (e) {} }
+  function forget(k) { if (hasStorage) { try { localStorage.removeItem(k); } catch (e) {} } }
 
+  /* ── URL helpers ───────────────────────────────────────────── */
   function normalise(raw) {
     var v = (raw || "").trim().replace(/\s+/g, "");
     if (!v) return "";
     if (!/^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//.test(v)) {
-      if (/^[\w.\-]+(:\d+)?(\/|$)/.test(v)) v = "https://" + v; else return "";
+      if (/^[\w.\-]+(:\d+)?(\/|$)/.test(v)) v = "http://" + v; else return "";
     }
     if (!/^https?:\/\//i.test(v)) return "";
     return v;
   }
 
-  function ping(text, kind) {
-    el.status.className = "pill " + (kind || "");
-    el.status.textContent = text;
-  }
-  function conn(text, kind) {
-    el.conn.className = "conn " + (kind || "");
-    el.conn.textContent = text;
-  }
-  function toast(msg) {
-    if (bridge) { try { bridge.toast(msg); return; } catch (e) {} }
-    conn(msg, "");
+  function hostUrl() {
+    var ip = (el.hostip.value || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    var port = recall(K_HOST_PORT) || DEFAULT_PORT;
+    if (!ip) return "";
+    return "http://" + ip + ":" + port;
   }
 
-  /* ── Navigation ─────────────────────────────────────────────── */
-  function openDashboard() {
-    var v = normalise(el.url.value);
-    if (!v) { el.warn.classList.add("show"); el.url.focus(); return false; }
-    el.warn.classList.remove("show");
-    el.url.value = v;
-    store(K_URL, v);
-    ping("loading", "wait");
-    if (bridge) { try { bridge.load(v); return true; } catch (e) {} }
-    window.location.href = v;
+  function showHostUrl(ip) {
+    var url = hostUrl();
+    if (!url) {
+      el.hosturl.textContent = "Wi-Fi address not detected — set it in the Setup tab.";
+      el.hosturl.className = "bigurl empty";
+      el.stepurl.textContent = "http://<tv-ip>:" + (recall(K_HOST_PORT) || DEFAULT_PORT);
+      return;
+    }
+    el.hosturl.textContent = url;
+    el.hosturl.className = "bigurl";
+    el.stepurl.textContent = url;
+    el.hosthint.textContent = "Open this from your phone, laptop or tablet on the same " +
+      "Wi-Fi. Console Manager needs no password — only do this on a network you trust.";
+    if (ip) el.hostip.value = ip;
+  }
+
+  function detectIp() {
+    var ip = "";
+    if (bridge && bridge.getLanAddress) {
+      try { ip = bridge.getLanAddress() || ""; } catch (e) { ip = ""; }
+    }
+    if (!ip) ip = recall(K_HOST_IP);
+    if (ip) { store(K_HOST_IP, ip); el.hostip.value = ip; }
+    showHostUrl(ip);
+    return ip;
+  }
+
+  /* ── status + messages ─────────────────────────────────────── */
+  function ping(text, kind) { el.status.className = "pill " + (kind || ""); el.status.textContent = text; }
+  function conn(text, kind, box) {
+    box = box || el.conn;
+    box.className = "conn " + (kind || "");
+    box.textContent = text;
+  }
+  function toast(msg) {
+    if (bridge && bridge.toast) { try { bridge.toast(msg); return; } catch (e) {} }
+    el.remoteout.textContent = msg;
+  }
+
+  /* ── tabs ──────────────────────────────────────────────────── */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll("[data-pane]"));
+  function selectPane(name, remember) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-pane") === name;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      var pane = $("pane-" + t.getAttribute("data-pane"));
+      if (pane) pane.className = "pane" + (on ? " active" : "");
+    });
+    if (remember !== false) store(K_PANE, name);
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () { selectPane(t.getAttribute("data-pane")); });
+  });
+
+  /* ── open the dashboard ────────────────────────────────────── */
+  function loadUrl(url, failBox) {
+    if (!url) return false;
+    if (bridge && bridge.load) { try { bridge.load(url); return true; } catch (e) {} }
+    window.location.href = url;
     return true;
   }
 
-  function openExternal() {
-    var v = normalise(el.url.value);
-    if (!v) { el.warn.classList.add("show"); return; }
-    if (bridge) { try { bridge.open(v); return; } catch (e) {} }
-    window.open(v, "_blank");
+  function showUrlWarning() {
+    el.warn.style.display = "block";
+    el.warn.className = "conn bad";
+    el.url.focus();
   }
 
-  function copyUrl() {
-    var v = normalise(el.url.value) || recall(K_URL);
-    if (!v) { toast("No URL saved yet"); return; }
-    if (bridge) { try { bridge.copy(v); return; } catch (e) {} }
+  /* An invalid *typed* URL is an error. Only an empty field may fall back to
+     the remembered URL - otherwise a typo would silently open something else. */
+  function resolveUrl(raw, allowSaved) {
+    var typed = (raw || "").trim();
+    if (!typed) return allowSaved ? normalise(recall(K_URL)) : "";
+    return normalise(typed);
+  }
+
+  function openDashboard() {
+    var v = resolveUrl(el.url.value, true);
+    if (!v) {
+      showUrlWarning();
+      return;
+    }
+    el.warn.style.display = "none";
+    el.url.value = v;
+    store(K_URL, v);
+    ping("loading", "wait");
+    loadUrl(v);
+  }
+
+  function saveDashboard() {
+    var v = resolveUrl(el.url.value, false);
+    if (!v) {
+      showUrlWarning();
+      return;
+    }
+    el.url.value = v;
+    store(K_URL, v);
+    el.warn.style.display = "none";
+    ping("saved", "ok");
+    toast("Saved");
+  }
+
+  function openExternal(url) {
+    if (!url) return;
+    if (bridge && bridge.open) { try { bridge.open(url); return; } catch (e) {} }
+    window.open(url, "_blank");
+  }
+
+  function copyText(text) {
+    if (!text) { toast("Nothing to copy yet"); return; }
+    if (bridge && bridge.copy) { try { bridge.copy(text); return; } catch (e) {} }
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(v).then(function () { toast("Copied"); },
-                                            function () { toast("Copy failed"); });
-    } else {
-      el.url.select();
-      toast("Long-press the field to copy");
+      navigator.clipboard.writeText(text).then(function () { toast("Copied"); },
+                                               function () { toast("Copy failed"); });
     }
   }
 
-  /* ── Connection check ──────────────────────────────────────── */
-  var pingTimer = null;
+  /* ── connection probing (native ping, then image fallback) ─── */
+  var pingTimer = null, pendingBox = null;
   window.__relayPing = function (ok, code, ms) {
     if (pingTimer) { clearTimeout(pingTimer); pingTimer = null; }
+    /* keep pointing at the panel this probe started in, so a late or repeated
+       callback still updates the right card */
+    var box = pendingBox || el.conn;
     if (ok) {
       ping("online", "ok");
-      conn("Server answered · HTTP " + code + " · " + ms + " ms", "ok");
+      conn("Server answered · HTTP " + code + " · " + ms + " ms", "ok", box);
+      if (box === el.hostconn) {
+        el.hosthint.textContent = "The console host is answering — other devices on this " +
+          "Wi-Fi can open the address above right now.";
+      }
     } else {
       ping("offline", "bad");
-      conn("No answer from the server. Check the URL, your data connection, " +
-           "and that the relay host is awake (free hosts sleep).", "bad");
+      conn("No answer. Check the address, the Wi-Fi connection, and that the console host " +
+           "is running (Remote tab → Start console host).", "bad", box);
     }
   };
 
-  function checkConnection() {
-    var v = normalise(el.url.value) || recall(K_URL);
-    if (!v) { el.warn.classList.add("show"); el.url.focus(); return; }
-    el.url.value = v;
-    store(K_URL, v);
+  function checkUrl(url, box) {
+    if (!url) { conn("Nothing to check yet.", "bad", box); return; }
     ping("checking", "wait");
-    conn("Contacting " + v + " …", "");
-
-    if (bridge) {
+    conn("Contacting " + url + " …", "", box);
+    pendingBox = box;
+    if (bridge && bridge.ping) {
       try {
         if (pingTimer) clearTimeout(pingTimer);
         pingTimer = setTimeout(function () {
           pingTimer = null;
+          pendingBox = null;
           ping("unknown", "wait");
-          conn("The check timed out after 15 s.", "bad");
+          conn("The check timed out after 15 s.", "bad", box);
         }, 15000);
-        bridge.ping(v);
+        bridge.ping(url);
         return;
-      } catch (e) { /* fall through to the JS probe */ }
+      } catch (e) { /* fall through */ }
     }
-
     var img = new Image(), started = Date.now(), settled = false;
     var finish = function (ok) {
       if (settled) return;
       settled = true;
-      var ms = Date.now() - started;
-      window.__relayPing(ok, ok ? 200 : 0, ms);
+      window.__relayPing(ok, ok ? 200 : 0, Date.now() - started);
     };
     img.onload = function () { finish(true); };
     img.onerror = function () { finish(false); };
-    var origin = v.replace(/^(https?:\/\/[^\/]+).*$/i, "$1");
-    img.src = origin + "/favicon.ico?cb=" + Date.now();
+    img.src = url.replace(/^(https?:\/\/[^\/]+).*$/i, "$1") + "/favicon.ico?cb=" + Date.now();
     setTimeout(function () { if (!settled) finish(false); }, 12000);
   }
 
-  /* ── Wiring ────────────────────────────────────────────────── */
-  el.open.addEventListener("click", openDashboard);
-  el.save.addEventListener("click", function () {
-    var v = normalise(el.url.value);
-    if (!v) { el.warn.classList.add("show"); el.url.focus(); return; }
+  /* ── termux bridge ─────────────────────────────────────────── */
+  function sendCommand(cmd, label) {
+    if (!cmd) return;
+    if (!bridge || !bridge.runConsoleCommand) {
+      conn("The Termux bridge is only available inside the Android app.", "bad", el.remoteout);
+      return;
+    }
+    var result = "";
+    try { result = String(bridge.runConsoleCommand(cmd)); } catch (e) { result = "failed"; }
+    if (result === "no-termux") {
+      conn("Termux is not installed on this device. Install it from F-Droid " +
+           "(com.termux), then come back.", "bad", el.remoteout);
+      return;
+    }
+    if (result === "permission-requested") {
+      conn("Android asks for permission to run Termux commands — allow it, then tap " +
+           label + " again.", "", el.remoteout);
+      return;
+    }
+    if (result === "sent") {
+      conn(label + " sent to Termux. Switch to Termux to watch it run " +
+           "(the first run installs Python and Screen, so give it a minute).", "ok", el.remoteout);
+      return;
+    }
+    conn("Could not reach Termux. In Termux run: " +
+         "mkdir -p ~/.termux; echo allow-external-apps=true >> ~/.termux/termux.properties; " +
+         "then fully close and reopen Termux and try again.", "bad", el.remoteout);
+  }
+
+  function refreshTermuxState() {
+    if (!bridge) {
+      conn("Termux control needs the Android app (this is a browser preview).", "", el.termuxstate);
+      return;
+    }
+    var out = "";
+    try { out = String(bridge.runConsoleCommand("true")); } catch (e) { out = "failed"; }
+    if (out === "no-termux") {
+      conn("Termux is not installed. Get it from F-Droid (com.termux), then open " +
+           "the TV host tab for the install command.", "bad", el.termuxstate);
+    } else if (out === "permission-requested") {
+      conn("Allow the Termux command permission when Android asks.", "", el.termuxstate);
+    } else if (out === "sent") {
+      conn("Termux is installed and accepting commands from this app.", "ok", el.termuxstate);
+    } else {
+      conn("Termux is installed, but external commands are disabled. In Termux run: " +
+           "echo allow-external-apps=true >> ~/.termux/termux.properties — then restart Termux.",
+           "bad", el.termuxstate);
+    }
+  }
+
+  /* ── startup / boot ────────────────────────────────────────── */
+  function refreshDeviceInfo() {
+    var bits = [];
+    var tv = false;
+    if (bridge && bridge.isTv) { try { tv = !!bridge.isTv(); } catch (e) { tv = false; } }
+    bits.push(tv ? "Android TV / Google TV detected" : "Phone / tablet mode");
+    var ip = el.hostip.value || recall(K_HOST_IP);
+    bits.push(ip ? "Wi-Fi address " + ip : "Wi-Fi address not detected");
+    bits.push(bridge ? "Native bridge ready" : "Browser preview (no bridge)");
+    var hostOn = bridge && bridge.getStartOnBoot &&
+      (function () { try { return !!bridge.getStartOnBoot(); } catch (e) { return false; } })();
+    bits.push(hostOn ? "Starts on boot: on" : "Starts on boot: off");
+    el.deviceinfo.textContent = bits.join(" · ");
+  }
+
+  function consumeLaunchUrl() {
+    var url = "";
+    if (bridge && bridge.getLaunchUrl) {
+      try { url = bridge.getLaunchUrl() || ""; } catch (e) { url = ""; }
+    }
+    if (!url) return false;
+    var v = normalise(url);
+    if (!v) return false;
     el.url.value = v;
     store(K_URL, v);
-    el.warn.classList.remove("show");
-    toast("Saved");
-    ping("saved", "ok");
+    ping("loading", "wait");
+    loadUrl(v);
+    return true;
+  }
+  window.__relayConsumeLaunchUrl = consumeLaunchUrl;   // called from Java onNewIntent
+
+  /* ── wiring ────────────────────────────────────────────────── */
+  el.open.addEventListener("click", openDashboard);
+  el.save.addEventListener("click", saveDashboard);
+  el.check.addEventListener("click", function () {
+    var v = resolveUrl(el.url.value, true);
+    if (!v) { showUrlWarning(); return; }
+    checkUrl(v, el.conn);
   });
-  el.check.addEventListener("click", checkConnection);
-  el.browser.addEventListener("click", openExternal);
+  el.browser.addEventListener("click", function () {
+    var v = resolveUrl(el.url.value, true);
+    if (!v) { showUrlWarning(); return; }
+    openExternal(v);
+  });
   el.auto.addEventListener("change", function () { store(K_AUTO, el.auto.checked ? "1" : ""); });
-  el.url.addEventListener("input", function () { el.warn.classList.remove("show"); });
+  el.url.addEventListener("input", function () { el.warn.style.display = "none"; });
   el.url.addEventListener("keydown", function (e) {
     if (e.key === "Enter") { e.preventDefault(); openDashboard(); }
   });
 
-  var lastClear = 0;
-  Array.prototype.forEach.call(document.querySelectorAll("[data-act]"), function (btn) {
+  el.hostopen.addEventListener("click", function () {
+    var url = hostUrl();
+    if (!url) { selectPane("settings"); el.hostip.focus(); return; }
+    store(K_HOST_PORT, recall(K_HOST_PORT) || DEFAULT_PORT);
+    ping("loading", "wait");
+    loadUrl(url);
+  });
+  el.hostcopy.addEventListener("click", function () { copyText(hostUrl()); });
+  el.hostcheck.addEventListener("click", function () { checkUrl(hostUrl(), el.hostconn); });
+  el.hostsave.addEventListener("click", function () {
+    var ip = (el.hostip.value || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+    el.hostip.value = ip;
+    store(K_HOST_IP, ip);
+    showHostUrl(ip);
+    toast("Address saved");
+  });
+  el.hostrediscover.addEventListener("click", function () { detectIp(); toast("Detected"); });
+  el.hostip.addEventListener("input", function () { showHostUrl(); });
+
+  el.runinstall.addEventListener("click", function () {
+    sendCommand(INSTALL_CMD, "Install Console Manager");
+  });
+
+  $("ac-start").addEventListener("click", function () {
+    sendCommand(TV_HOST + " start 2>/dev/null || bash $PREFIX/bin/ac webui-start 2>/dev/null || bash cm",
+                "Start console host");
+  });
+  $("ac-urls").addEventListener("click", function () {
+    sendCommand(TV_HOST + " url 2>/dev/null || bash $PREFIX/bin/ac webui-urls 2>/dev/null || " +
+                "echo 'Console Manager is not installed yet'",
+                "Show host URLs");
+  });
+  $("ac-dash").addEventListener("click", function () {
+    sendCommand("bash $PREFIX/bin/ac 2>/dev/null || bash cm", "Open Termux dashboard");
+  });
+  $("ac-app").addEventListener("click", function () {
+    if (bridge && bridge.openTermux) {
+      try { bridge.openTermux(); return; } catch (e) {}
+    }
+    toast("Open Termux from the TV's app list");
+  });
+  el.cmdsend.addEventListener("click", function () {
+    sendCommand((el.cmd.value || "").trim(), "Command");
+  });
+  el.cmdreset.addEventListener("click", function () { el.cmd.value = "bash cm"; el.cmd.focus(); });
+  el.cmd.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); el.cmdsend.click(); }
+  });
+
+  el.boot.addEventListener("change", function () {
+    var on = el.boot.checked;
+    if (bridge && bridge.setStartOnBoot) {
+      try { bridge.setStartOnBoot(on); } catch (e) {}
+    }
+    store("rd.boot", on ? "1" : "");
+    refreshDeviceInfo();
+  });
+
+  document.querySelectorAll("[data-act]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var act = btn.getAttribute("data-act");
       if (act === "reload") {
-        if (recall(K_URL)) { el.url.value = recall(K_URL); openDashboard(); }
-        else { toast("Nothing to reload"); }
+        var v = normalise(recall(K_URL));
+        if (v) { el.url.value = v; openDashboard(); } else { toast("Nothing to reload"); }
       } else if (act === "copy") {
-        copyUrl();
+        copyText(resolveUrl(el.url.value, true));
       } else if (act === "clear") {
-        var now = Date.now();
-        if (now - lastClear > 3000) {
-          lastClear = now;
+        if (btn.getAttribute("data-armed") !== "1") {
+          btn.setAttribute("data-armed", "1");
           btn.textContent = "Tap again to clear";
           setTimeout(function () {
-            if (Date.now() - lastClear >= 2900) btn.textContent = "Clear saved data";
-          }, 3100);
+            btn.setAttribute("data-armed", "0");
+            btn.textContent = "Clear saved data";
+          }, 3200);
           return;
         }
+        btn.setAttribute("data-armed", "0");
+        btn.textContent = "Clear saved data";
         forget(K_URL); forget(K_AUTO); forget(K_OPENED);
         el.url.value = ""; el.auto.checked = false;
-        lastClear = 0; btn.textContent = "Clear saved data";
-        ping("idle", ""); conn("Saved data cleared.", "");
+        ping("idle", ""); conn("Saved dashboard data cleared.", "");
         toast("Cleared");
       } else if (act === "about") {
-        conn("Relay Dashboard v1.0 · a thin native shell around your own relay " +
-             "dashboard. Built for Android 7.0+ (API 24). No analytics, no ads, " +
-             "no network access except the pages you open.", "");
+        conn("Relay Dashboard v1.1 — a thin native shell that opens your dashboard, " +
+             "turns this device into a small console host, and can drive Termux. " +
+             "Permissions: internet, boot, and Termux commands (optional). No analytics.",
+             "", el.conn);
       }
     });
   });
 
-  /* ── Boot ──────────────────────────────────────────────────── */
+  /* remote: arrow keys move focus between tabs, Back-ish Escape returns to the
+     first tab so the remote never gets stuck */
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var first = tabs[0];
+    if (first) first.focus();
+  });
+
+  /* ── boot ──────────────────────────────────────────────────── */
+  el.sub.textContent = bridge ? "Android shell · v1.1" : "Browser preview (no native bridge)";
+  el.installcmd.textContent = INSTALL_CMD;
+
   var saved = recall(K_URL);
   if (saved) el.url.value = saved;
   el.auto.checked = recall(K_AUTO) === "1";
 
-  if (saved && el.auto.checked && bridge) {
+  var bootOn = false;
+  if (bridge && bridge.getStartOnBoot) {
+    try { bootOn = !!bridge.getStartOnBoot(); } catch (e) { bootOn = recall("rd.boot") === "1"; }
+  } else {
+    bootOn = recall("rd.boot") === "1";
+  }
+  el.boot.checked = bootOn;
+
+  el.hostip.value = recall(K_HOST_IP);
+  detectIp();
+  refreshDeviceInfo();
+  refreshTermuxState();
+
+  var restoredPane = recall(K_PANE);
+  if (restoredPane) selectPane(restoredPane, false);
+
+  // 1) launched by the TV boot receiver (or a shortcut) with a URL -> open it
+  if (consumeLaunchUrl()) {
+    // done
+  } else if (saved && el.auto.checked && bridge) {
+    // 2) open the saved dashboard once per launch
     var already = "";
     try { already = sessionStorage.getItem(K_OPENED) || ""; } catch (e) {}
     if (!already) {
       try { sessionStorage.setItem(K_OPENED, "1"); } catch (e) {}
       ping("loading", "wait");
-      setTimeout(function () { try { bridge.load(saved); } catch (e) {} }, 120);
+      setTimeout(function () { loadUrl(saved); }, 150);
     }
+  } else if (saved) {
+    checkUrl(saved, el.conn);
+  } else {
+    /* nothing configured yet: for a TV the useful screen is the host address */
+    var looksLikeTv = false;
+    if (bridge && bridge.isTv) { try { looksLikeTv = !!bridge.isTv(); } catch (e) {} }
+    if (looksLikeTv) selectPane("tvhost");
   }
 
-  if (!bridge) {
-    conn("Open this page inside the Android app for connection checks.", "");
-  } else if (saved) {
-    checkConnection();
-  } else {
-    conn("No dashboard URL saved yet. Paste one above, then tap Save.", "");
-  }
+  if (saved && !(bridge && bridge.getLaunchUrl)) checkUrl(saved, el.conn);
 })();
 </script>
 </body>

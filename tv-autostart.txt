@@ -1,0 +1,262 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# ---------------------------------------------------------------------------
+# tv-autostart.txt — make an Android TV / Google TV host the Console Manager
+# dashboard by itself, every time it powers on.
+#
+# One-time setup (paste into Termux on the TV):
+#
+#   python3 -c 'import urllib.request as u,subprocess as s;u.urlretrieve("https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/tv-autostart.txt","tv");s.run(["bash","tv"],check=True)'
+#
+# Afterwards, anywhere in Termux:
+#
+#   bash ~/tv-autostart.txt status     # is the host running? which URL?
+#   bash ~/tv-autostart.txt start      # start it now
+#   bash ~/tv-autostart.txt stop       # stop it
+#   bash ~/tv-autostart.txt url        # LAN address for other devices
+#   bash ~/tv-autostart.txt boot-on    # start on power-on (default: on)
+#   bash ~/tv-autostart.txt boot-off   # do not start on power-on
+#   bash ~/tv-autostart.txt update     # reinstall/update Console Manager
+#   bash ~/tv-autostart.txt install    # same as running with no arguments
+#
+# What it does, in order:
+#   1. installs python / screen / curl if they are missing
+#   2. allows the Relay Dashboard APK to send commands to Termux
+#      (allow-external-apps=true in ~/.termux/termux.properties)
+#   3. installs Console Manager if $PREFIX/bin/ac is not there yet
+#   4. starts its web UI, reachable from other devices on the same Wi-Fi
+#   5. drops a Termux:Boot hook so it comes back after a power cut
+#
+# Safe to run again at any time. It never deletes consoles you created.
+# ---------------------------------------------------------------------------
+set -uo pipefail
+
+REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main}"
+DIR="$HOME/.ac-consoles"
+BOOT_DIR="$HOME/.termux/boot"
+BOOT_HOOK="$BOOT_DIR/tv-console-host"
+PROPS="$HOME/.termux/termux.properties"
+PORT="${AC_WEB_PORT:-5000}"
+HOST_PID_FILE="$DIR/webui.pid"
+
+log()  { printf '\033[1;35m[tv-host]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[tv-host]\033[0m %s\n' "$*"; }
+die()  { printf '\033[1;31m[tv-host] %s\033[0m\n' "$*" >&2; exit 1; }
+
+[ -n "${PREFIX:-}" ] || die "PREFIX is not set — run this inside Termux, not adb shell."
+
+# ── 1. dependencies ────────────────────────────────────────────────────────
+ensure_deps() {
+    local missing=() pkg_name
+    for cmd in python3 screen curl; do
+        command -v "$cmd" >/dev/null 2>&1 || {
+            case "$cmd" in
+                python3) pkg_name=python ;;
+                *) pkg_name="$cmd" ;;
+            esac
+            missing+=("$pkg_name")
+        }
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        log "Installing: ${missing[*]}"
+        pkg install -y "${missing[@]}" || die "pkg install failed — check the TV's internet connection."
+    else
+        log "Dependencies already installed (python, screen, curl)"
+    fi
+}
+
+# ── 2. let the APK talk to Termux ──────────────────────────────────────────
+allow_external_apps() {
+    mkdir -p "$(dirname "$PROPS")"
+    if grep -qs '^[[:space:]]*allow-external-apps[[:space:]]*=[[:space:]]*true' "$PROPS"; then
+        log "Termux already accepts commands from the dashboard app"
+        return
+    fi
+    {
+        printf '\n# added by tv-autostart: let the Relay Dashboard APK run commands\n'
+        printf 'allow-external-apps=true\n'
+    } >> "$PROPS"
+    log "Enabled allow-external-apps (restart Termux once for it to take effect)"
+}
+
+# ── 3. Console Manager ─────────────────────────────────────────────────────
+install_console_manager() {
+    if [ -x "$PREFIX/bin/ac" ] && [ -f "$DIR/webui.py" ]; then
+        log "Console Manager already installed"
+        return
+    fi
+    log "Installing Console Manager (this takes a minute)…"
+    local tmp="$HOME/.tv-autostart-install.sh"
+    curl -fsSL "$REPO_RAW/console%20manager.txt" -o "$tmp" \
+        || die "Could not download the installer. Check the TV's internet connection."
+    # The installer is non-interactive-safe: with no terminal it keeps the
+    # saved style instead of waiting for a keypress.
+    bash "$tmp" </dev/null || die "The Console Manager installer failed. Re-run: bash tv-autostart.txt install"
+    rm -f "$tmp"
+    log "Console Manager installed"
+}
+
+# ── host control ───────────────────────────────────────────────────────────
+host_pid() {
+    [ -f "$HOST_PID_FILE" ] || return 1
+    local pid
+    pid="$(cat "$HOST_PID_FILE" 2>/dev/null || true)"
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    printf '%s' "$pid"
+}
+
+host_running() {
+    local pid
+    pid="$(host_pid)" || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+lan_ip() {
+    python3 - <<'PY' 2>/dev/null
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+try:
+    s.connect(("8.8.8.8", 53))
+    print(s.getsockname()[0])
+except Exception:
+    print("")
+finally:
+    s.close()
+PY
+}
+
+start_host() {
+    if host_running; then
+        log "Console host is already running (pid $(host_pid))"
+        print_urls
+        return 0
+    fi
+    if [ -x "$PREFIX/bin/ac" ]; then
+        bash "$PREFIX/bin/ac" webui-start >>"$DIR/webui.log" 2>&1 || true
+    fi
+    if [ -f "$DIR/webui.py" ] && ! host_running; then
+        # direct fallback: same daemon ac would start, fully detached
+        mkdir -p "$DIR"
+        nohup env AC_CONSOLE_DIR="$DIR" SCREENDIR="$HOME/.screen" \
+            AC_WEB_HOST="0.0.0.0" AC_WEB_PORT="$PORT" \
+            python3 "$DIR/webui.py" </dev/null >>"$DIR/webui.log" 2>&1 &
+        echo "$!" > "$HOST_PID_FILE"
+        sleep 1
+    fi
+    if host_running; then
+        log "Console host started (pid $(host_pid))"
+        print_urls
+    else
+        warn "The host did not start. Last log lines:"
+        tail -n 15 "$DIR/webui.log" 2>/dev/null || true
+        return 1
+    fi
+}
+
+stop_host() {
+    if host_running; then
+        if [ -x "$PREFIX/bin/ac" ]; then
+            bash "$PREFIX/bin/ac" webui-stop >>"$DIR/webui.log" 2>&1 || kill "$(host_pid)" 2>/dev/null || true
+        else
+            kill "$(host_pid)" 2>/dev/null || true
+        fi
+        sleep 0.5
+        log "Console host stopped"
+    else
+        log "Console host is not running"
+    fi
+    rm -f "$HOST_PID_FILE" 2>/dev/null || true
+}
+
+print_urls() {
+    local ip
+    ip="$(lan_ip)"
+    printf '\n  On this TV:        http://localhost:%s\n' "$PORT"
+    if [ -n "$ip" ]; then
+        printf '  Other devices:     http://%s:%s\n' "$ip" "$PORT"
+        printf '  Same Wi-Fi, no password. Open that address from a phone or laptop.\n\n'
+    else
+        printf '  Other devices:     Wi-Fi address not detected (is Wi-Fi connected?)\n\n'
+    fi
+}
+
+# ── 4. boot hook (Termux:Boot) ─────────────────────────────────────────────
+boot_on() {
+    mkdir -p "$BOOT_DIR"
+    cat > "$BOOT_HOOK" <<'BOOTEOF'
+#!/data/data/com.termux/files/usr/bin/sh
+# Starts the Console Manager host shortly after the TV powers on.
+# Installed by tv-autostart.txt — delete this file to disable.
+termux-wake-lock >/dev/null 2>&1 || true
+sleep 5
+bash "$HOME/tv-autostart.txt" start >"$HOME/.ac-consoles/boot.log" 2>&1
+BOOTEOF
+    chmod +x "$BOOT_HOOK"
+    log "Boot hook installed: $BOOT_HOOK"
+    warn "Install the 'Termux:Boot' app once (F-Droid) and open it once —"
+    warn "Android only runs boot hooks for apps that have been launched."
+}
+
+boot_off() {
+    rm -f "$BOOT_HOOK"
+    log "Boot hook removed — the host will not start by itself"
+}
+
+# ── 5. keep this script where the boot hook expects it ─────────────────────
+pin_script() {
+    local self="${BASH_SOURCE[0]:-}"
+    [ -n "$self" ] || return
+    [ -f "$self" ] || return
+    if [ "$(cd "$(dirname "$self")" && pwd)/$(basename "$self")" != "$HOME/tv-autostart.txt" ]; then
+        cp "$self" "$HOME/tv-autostart.txt"
+        chmod +x "$HOME/tv-autostart.txt"
+        log "Copy saved as ~/tv-autostart.txt (the boot hook uses that path)"
+    fi
+}
+
+status() {
+    if host_running; then
+        log "Console host: RUNNING (pid $(host_pid))"
+        print_urls
+    else
+        log "Console host: not running"
+        printf '  Start it with:  bash ~/tv-autostart.txt start\n'
+    fi
+    if [ -x "$BOOT_HOOK" ]; then
+        printf '  Boot hook:      installed (%s)\n' "$BOOT_HOOK"
+    else
+        printf '  Boot hook:      not installed (bash ~/tv-autostart.txt boot-on)\n'
+    fi
+    if command -v screen >/dev/null 2>&1; then
+        local n
+        n="$(screen -ls 2>/dev/null | grep -c 'ac_')"
+        printf '  Consoles:       %s\n' "$n"
+    fi
+}
+
+do_install() {
+    ensure_deps
+    allow_external_apps
+    install_console_manager
+    pin_script
+    start_host
+    boot_on
+    printf '\n\033[1;32m Done.\033[0m The host starts with the TV from now on.\n'
+    printf ' Open the Relay Dashboard app on the TV: it shows this address in the\n'
+    printf ' "TV host" tab and can start/stop the host from the remote.\n\n'
+}
+
+case "${1:-install}" in
+    install|"")   do_install ;;
+    start)        ensure_deps; start_host ;;
+    stop)         stop_host ;;
+    restart)      stop_host; start_host ;;
+    status)       status ;;
+    url)          print_urls ;;
+    boot-on)      boot_on ;;
+    boot-off)     boot_off ;;
+    update)       ensure_deps; rm -f "$PREFIX/bin/ac"; install_console_manager; start_host ;;
+    help|-h|--help)
+        sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *) die "Unknown command '$1' — try: status | start | stop | url | boot-on | boot-off | update" ;;
+esac
