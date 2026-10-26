@@ -1,10 +1,11 @@
-package com.nishgamerrz.relaydash;
+package com.nishgamerrz.nishgamerr;
 
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -66,16 +67,43 @@ public final class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private Switch bootSwitch;
+    private TextView shellText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // /sdcard/Nishgamerr holds the surviving password: ask for it up front,
+        // then adopt whatever a previous install left behind.
+        askForStorage();
+        Prefs.restoreFromVault(this);
         setContentView(buildUi());
-        // Opening the app is the "install" step: the host comes up on its own.
+        // Opening the app is the "install" step: shell + host come up on their own.
+        HostState.provision(this);
         startHost();
         passwordField.setText(Prefs.password(this));
         portField.setText(String.valueOf(Prefs.port(this)));
         bootSwitch.setChecked(Prefs.startOnBoot(this));
+    }
+
+    /** Android 6+ requires the grant; Android 8 TV grants it from a dialog. */
+    private void askForStorage() {
+        try {
+            if (Build.VERSION.SDK_INT < 23) return;
+            if (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE")
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{
+                        "android.permission.WRITE_EXTERNAL_STORAGE",
+                        "android.permission.READ_EXTERNAL_STORAGE"}, 1);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] granted) {
+        super.onRequestPermissionsResult(code, perms, granted);
+        if (Prefs.restoreFromVault(this)) passwordField.setText(Prefs.password(this));
+        refresh();
     }
 
     @Override
@@ -110,9 +138,9 @@ public final class MainActivity extends Activity {
         header.setOrientation(LinearLayout.VERTICAL);
         root.addView(header);
 
-        TextView title = text("Relay Dashboard", 26, TEXT, Typeface.BOLD);
+        TextView title = text("Nishgamerr", 28, TEXT, Typeface.BOLD);
         header.addView(title);
-        TextView sub = text("Console host for this TV", 14, MUTED, Typeface.NORMAL);
+        TextView sub = text("Termux-style console host for this device", 14, MUTED, Typeface.NORMAL);
         sub.setPadding(0, dp(2), 0, dp(14));
         header.addView(sub);
 
@@ -240,9 +268,23 @@ public final class MainActivity extends Activity {
             }
         }));
 
+        // shell (bundled busybox = the termux-style userland)
+        LinearLayout shellCard = card(root);
+        shellCard.addView(sectionTitle("Shell"));
+        shellText = text("Preparing…", 14, TEXT, Typeface.NORMAL);
+        shellText.setTypeface(Typeface.MONOSPACE);
+        shellText.setPadding(0, dp(6), 0, dp(10));
+        shellCard.addView(shellText);
+        LinearLayout shellRow = row(shellCard);
+        shellRow.addView(button("Reinstall shell", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                reinstallShell();
+            }
+        }));
+
         // devices
         LinearLayout deviceCard = card(root);
-        deviceCard.addView(sectionTitle("Devices that opened it"));
+        deviceCard.addView(sectionTitle("Devices that logged in"));
         devicesText = text("Nothing yet.", 15, TEXT, Typeface.NORMAL);
         devicesText.setTypeface(Typeface.MONOSPACE);
         devicesText.setPadding(0, dp(6), 0, dp(10));
@@ -256,7 +298,7 @@ public final class MainActivity extends Activity {
         }));
 
         // footer
-        TextView footer = text("Relay Dashboard " + HostState.VERSION
+        TextView footer = text("Nishgamerr " + HostState.VERSION
                 + " · serves itself from this device · nothing leaves your Wi-Fi",
                 12, 0xFF6E6785, Typeface.NORMAL);
         footer.setPadding(0, dp(18), 0, 0);
@@ -384,6 +426,27 @@ public final class MainActivity extends Activity {
         toast("Now serving on port " + port);
     }
 
+    private void reinstallShell() {
+        try {
+            java.io.File usr = new java.io.File(getFilesDir(), "shell/usr");
+            deleteTree(usr);
+            HostState.consoles(this).shutdownAll();
+        } catch (Exception ignored) {
+        }
+        HostState.provision(this);
+        toast("Reinstalling the shell…");
+        refresh();
+    }
+
+    private static void deleteTree(java.io.File file) {
+        if (file == null || !file.exists()) return;
+        java.io.File[] kids = file.listFiles();
+        if (kids != null) {
+            for (int i = 0; i < kids.length; i++) deleteTree(kids[i]);
+        }
+        file.delete();
+    }
+
     private void copy(String value) {
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -449,6 +512,22 @@ public final class MainActivity extends Activity {
                 if (i < list.size() - 1) sb.append("\n\n");
             }
             devicesText.setText(sb.toString());
+        }
+
+        String shell = HostState.shellState();
+        int pct = HostState.provisionPercent();
+        if (pct > 0 && pct < 100) {
+            shellText.setText("Installing packages… " + pct + "% · " + HostState.provisionStep());
+            shellText.setTextColor(WARN);
+        } else if (shell != null && shell.startsWith("install failed")) {
+            shellText.setText(shell);
+            shellText.setTextColor(BAD);
+        } else {
+            int n = HostState.consoles(this).size();
+            shellText.setText((shell == null ? "busybox" : shell) + "\n"
+                    + n + (n == 1 ? " console" : " consoles")
+                    + " · ash with 342 applets · pkg install works");
+            shellText.setTextColor(TEXT);
         }
 
         startButton.setEnabled(!running);

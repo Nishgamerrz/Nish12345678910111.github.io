@@ -1,10 +1,11 @@
-package com.nishgamerrz.relaydash;
+package com.nishgamerrz.nishgamerr;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Handler;
@@ -21,8 +22,8 @@ import android.os.Looper;
  */
 public final class HostService extends Service {
 
-    public static final String ACTION_START = "com.nishgamerrz.relaydash.START";
-    public static final String ACTION_STOP = "com.nishgamerrz.relaydash.STOP";
+    public static final String ACTION_START = "com.nishgamerrz.nishgamerr.START";
+    public static final String ACTION_STOP = "com.nishgamerrz.nishgamerr.STOP";
 
     private static final String CHANNEL_ID = "relay_host";
     private static final int NOTIFICATION_ID = 1001;
@@ -52,10 +53,33 @@ public final class HostService extends Service {
             return START_NOT_STICKY;
         }
 
-        String error = HostState.start(this);
-        startForeground(NOTIFICATION_ID, buildNotification(error));
+        // Android 8 gives startForegroundService() five seconds to produce the
+        // notification. Provisioning the shell and binding the socket can take
+        // longer than that on a cold TV boot, so the notification comes first
+        // and the real work happens off the main thread - otherwise the very
+        // boot we are trying to fix ends in an ANR and no service at all.
+        startForeground(NOTIFICATION_ID, buildNotification(HostState.lastError()));
         handler.removeCallbacks(refresher);
         handler.postDelayed(refresher, 30000L);
+
+        final Context self = getApplicationContext();
+        Thread boot = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    HostState.provision(self);
+                    HostState.start(self);
+                    WatchdogJob.schedule(self);
+                } catch (Throwable ignored) {
+                }
+                handler.post(new Runnable() {
+                    public void run() {
+                        updateNotification();
+                    }
+                });
+            }
+        }, "host-start");
+        boot.setDaemon(true);
+        boot.start();
         return START_STICKY;
     }
 
@@ -79,9 +103,9 @@ public final class HostService extends Service {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm == null) return;
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
-                "Dashboard host",
+                "Console host",
                 NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Shows the address of the built-in dashboard server");
+        channel.setDescription("Shows the address of the Nishgamerr console");
         channel.setShowBadge(false);
         nm.createNotificationChannel(channel);
     }
@@ -90,7 +114,7 @@ public final class HostService extends Service {
     private Notification buildNotification(String error) {
         boolean running = HostState.isRunning();
         String url = running ? HostState.url(this) : "Not running";
-        String title = running ? "Dashboard running" : "Dashboard stopped";
+        String title = running ? "Nishgamerr console running" : "Nishgamerr console stopped";
 
         Intent open = new Intent(this, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);

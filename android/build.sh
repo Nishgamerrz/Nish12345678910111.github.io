@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# build.sh — compiles, packages, checks, signs and verifies RelayDashboard.apk
+# build.sh — compiles, packages, checks, signs and verifies Nishgamerr.apk
 #
 #   ./build.sh              build + sign + verify
 #   ./build.sh --clean      remove build/ and dist/ first
@@ -32,13 +32,13 @@ KEYTOOL_BIN="${KEYTOOL_BIN:-$(dirname "$JAVA_BIN")/keytool}"
 KEYSTORE="${KEYSTORE:-$PWD/keystore/relay-release.keystore}"
 KS_ALIAS="${KS_ALIAS:-relaydash}"
 KS_PASS="${KS_PASS:-relaydash}"
-KS_DNAME="${KS_DNAME:-CN=Relay Dashboard, O=Nishgamerrz, C=IN}"
+KS_DNAME="${KS_DNAME:-CN=Nishgamerr, O=Nishgamerrz, C=IN}"
 MIN_SDK=24
 EXPECTED_DEX=035          # Android 7.0+ format; dx emits this by default
 
 BUILD="$PWD/build"
 OUT_DIR="$PWD/dist"
-APK_NAME="RelayDashboard.apk"
+APK_NAME="Nishgamerr.apk"
 
 say() { printf '\n\033[1;35m▸ %s\033[0m\n' "$1"; }
 ok()  { printf '\033[1;32m  ✓ %s\033[0m\n' "$1"; }
@@ -105,12 +105,26 @@ say "Packaging resources and manifest"
 rm -f "$OUT_DIR/unsigned.apk"
 "$JAVA_BIN" -jar "$APKTOOL_JAR" b . -o "$OUT_DIR/unsigned.apk" --aapt "$AAPT2_BIN"
 
-# ── 4. put the dex inside ─────────────────────────────────────────────────
+# ── 4. put the dex and the bundled shell inside ───────────────────────────
 say "Adding classes.dex"
 ( cd "$BUILD" && zip -q -X "$OUT_DIR/unsigned.apk" classes.dex ) \
     || die "could not add classes.dex to the apk"
 unzip -l "$OUT_DIR/unsigned.apk" | grep -q "classes.dex" || die "classes.dex missing from the apk"
 ok "classes.dex packaged"
+
+# The Linux userland ships inside the apk as assets/busybox/*, so the app can
+# unpack it into its own data dir at first launch with no network and no Termux.
+for abi in arm arm64 x86_64; do
+    [ -s "assets/busybox/busybox-$abi" ] || die "assets/busybox/busybox-$abi is missing from the source tree"
+done
+( cd "$PWD" && zip -q -X "$OUT_DIR/unsigned.apk" assets/busybox/busybox-arm \
+      assets/busybox/busybox-arm64 assets/busybox/busybox-x86_64 ) \
+    || die "could not add the bundled shell to the apk"
+for abi in arm arm64 x86_64; do
+    unzip -l "$OUT_DIR/unsigned.apk" | grep -q "assets/busybox/busybox-$abi" \
+        || die "busybox-$abi missing from the apk"
+done
+ok "bundled shell packaged for arm, arm64 and x86_64 ($(du -ch assets/busybox/* | tail -1 | cut -f1) of applets)"
 
 # ── 5. checks on what was actually built ──────────────────────────────────
 say "Checking the package"
@@ -131,21 +145,33 @@ ok "foreground host service declared"
 echo "$TREE" | grep -qi "termux" && die "a Termux permission is still declared"
 ok "no Termux dependency"
 
-for cls in WebServer HostService BootReceiver MainActivity Prefs Auth Pages DeviceLog CommandRunner HostState; do
-    unzip -p "$OUT_DIR/unsigned.apk" classes.dex | grep -qa "Lcom/nishgamerrz/relaydash/$cls;" \
+# Grep the dex from a file, not a pipe: `grep -q` exits at the first match,
+# and with pipefail the resulting SIGPIPE on unzip would look like a failure.
+unzip -p "$OUT_DIR/unsigned.apk" classes.dex > "$BUILD/dex.check"
+for cls in WebServer HostService BootReceiver MainActivity Prefs Auth Pages DeviceLog \
+           HostState ShellRuntime ShellSession ConsoleManager WatchdogJob; do
+    grep -qa "Lcom/nishgamerrz/nishgamerr/$cls;" "$BUILD/dex.check" \
         || die "class $cls missing from classes.dex"
 done
 
 # and the entry point must really be there, not just referenced
-unzip -p "$OUT_DIR/unsigned.apk" classes.dex | grep -qa "Lcom/nishgamerrz/relaydash/MainActivity;.[^ ]*onCreate" \
-    || unzip -p "$OUT_DIR/unsigned.apk" classes.dex | grep -qa "onCreate" \
+grep -qa "Lcom/nishgamerrz/nishgamerr/MainActivity;.[^ ]*onCreate" "$BUILD/dex.check" \
+    || grep -qa "onCreate" "$BUILD/dex.check" \
     || die "MainActivity.onCreate missing from the dex"
 ok "all engine classes present in classes.dex"
-for route in "/api/status" "/api/run" "/login"; do
-    unzip -p "$OUT_DIR/unsigned.apk" classes.dex | grep -qa "$route" \
-        || die "route $route missing"
+for route in "/api/status" "/api/run" "/api/console/new" "/login"; do
+    grep -qa "$route" "$BUILD/dex.check" || die "route $route missing"
 done
 ok "login, status and console routes compiled in"
+
+# The two features that are invisible until the TV reboots or the app is
+# reinstalled, so they get an explicit gate.
+grep -qa "Nishgamerr" "$BUILD/dex.check" || die "password vault folder missing from the dex"
+grep -qa "/sdcard\|getExternalStorageDirectory" "$BUILD/dex.check" \
+    || die "the password vault no longer writes to shared storage"
+ok "password vault writes to shared storage (survives a reinstall)"
+grep -qa "startForegroundService" "$BUILD/dex.check" || die "boot start path missing"
+ok "foreground-first boot start present"
 
 # ── 6. sign ───────────────────────────────────────────────────────────────
 if [ ! -f "$KEYSTORE" ]; then

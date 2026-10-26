@@ -1,4 +1,4 @@
-package com.nishgamerrz.relaydash;
+package com.nishgamerrz.nishgamerr;
 
 import java.security.MessageDigest;
 import java.security.SecureRandom;

@@ -1,4 +1,4 @@
-package com.nishgamerrz.relaydash;
+package com.nishgamerrz.nishgamerr;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -158,9 +158,13 @@ public final class Pages {
     public static String dashboard(String hostName, String version, String url,
                                    long uptimeMs, int port, String deviceModel,
                                    String androidVersion, List<DeviceLog.Entry> devices,
-                                   long now, boolean hasPassword) {
+                                   long now, boolean hasPassword,
+                                   ConsoleManager consoles, String selectedId,
+                                   String shellVersion) {
+        ShellSession active = consoles.get(selectedId);
+        String activeId = active == null ? ConsoleManager.DEFAULT_ID : active.id();
         StringBuilder sb = new StringBuilder();
-        sb.append(head("Relay Console"));
+        sb.append(head("Nishgamerr console"));
         sb.append(header(hostName, true,
                 "<form method=post action=/logout style='margin:0 0 0 8px'>" +
                 "<button class=ghost type=submit style='padding:8px 12px;font-size:12.5px'>Sign out</button></form>"));
@@ -170,6 +174,7 @@ public final class Pages {
                 "<p class=url>").append(esc(url)).append("</p>");
         sb.append("<p class=muted>Serving for ").append(esc(uptime(uptimeMs)))
           .append(" &middot; port ").append(port)
+          .append(" &middot; ").append(describedShell(shellVersion))
           .append(" &middot; ").append(devices.size()).append(" device")
           .append(devices.size() == 1 ? "" : "s").append(" seen</p>");
         if (!hasPassword) {
@@ -178,23 +183,37 @@ public final class Pages {
         }
         sb.append("</div>");
 
-        // console
-        sb.append("<div class=card><h2>Console</h2>");
-        sb.append("<p class=hint style='margin-top:0'>Runs in the TV's own shell, as the " +
-                "dashboard app's user (no root). Output is capped at 32 KB / 10 s.</p>");
-        sb.append("<form id=cmdform style='margin-top:11px'>");
-        sb.append("<input type=text id=cmd name=cmd placeholder='getprop ro.product.model'" +
-                " autocapitalize=off autocorrect=off spellcheck=false autocomplete=off>");
+        // consoles - the Console Manager tabs, one live shell each
+        sb.append("<div class=card><h2>Consoles</h2><div class=tabs>");
+        List<ShellSession> all = consoles.list();
+        for (int i = 0; i < all.size(); i++) {
+            ShellSession c = all.get(i);
+            boolean on = c.id().equals(activeId);
+            sb.append("<a class='tab").append(on ? " on" : "").append("' href='/?c=")
+              .append(esc(c.id())).append("'>").append(esc(c.name()))
+              .append("<span class=dot>").append(c.isAlive() ? "" : "").append("</span></a>");
+        }
+        sb.append("<button class='tab new' type=button id=newconsole>+ New console</button>");
+        sb.append("</div>");
+
+        sb.append("<form id=cmdform style='margin-top:12px'>");
+        sb.append("<input type=hidden id=consoleid value='").append(esc(activeId)).append("'>");
+        sb.append("<input type=text id=cmd placeholder='ls -la /sdcard  ·  pkg list  ·  getprop  ·  ps' " +
+                "autocapitalize=off autocorrect=off spellcheck=false autocomplete=off>");
         sb.append("<div class=row style='margin-top:10px'>");
-        sb.append("<button class=primary type=submit id=runbtn>Run</button>");
-        sb.append("<button class=ghost type=button id=clearout>Clear</button>");
+        sb.append("<button class=primary type=submit id=runbtn>Run in ").append(esc(active == null ? "console" : active.name())).append("</button>");
+        sb.append("<button class=ghost type=button id=clearout>Clear screen</button>");
+        sb.append("<button class=ghost type=button id=killconsole>Delete console</button>");
         sb.append("</div></form>");
-        sb.append("<pre id=out>Ready.</pre></div>");
+        sb.append("<p class=hint style='margin:8px 0 0'>Each console is its own long-running ash: " +
+                "cd and variables survive between commands. The shell is the BusyBox bundled " +
+                "in the app - no Termux, no root.</p>");
+        sb.append("<pre id=out>").append(esc(active == null ? "" : active.tail(400))).append("</pre></div>");
 
         // devices
-        sb.append("<div class=card><h2>Devices that opened this dashboard</h2>");
+        sb.append("<div class=card><h2>Devices that logged in</h2>");
         if (devices.isEmpty()) {
-            sb.append("<p class=muted>Nothing yet - you are the first request that was recorded.</p>");
+            sb.append("<p class=muted>Nothing yet.</p>");
         } else {
             sb.append("<table><tr><th>Device</th><th>Address</th><th>Last seen</th><th>Hits</th></tr>");
             for (int i = 0; i < devices.size(); i++) {
@@ -214,7 +233,8 @@ public final class Pages {
         sb.append("<div class=card><h2>This host</h2><table>");
         sb.append("<tr><th>Device</th><td>").append(esc(deviceModel)).append("</td></tr>");
         sb.append("<tr><th>Android</th><td>").append(esc(androidVersion)).append("</td></tr>");
-        sb.append("<tr><th>App</th><td>Relay Dashboard ").append(esc(version)).append("</td></tr>");
+        sb.append("<tr><th>App</th><td>Nishgamerr ").append(esc(version)).append("</td></tr>");
+        sb.append("<tr><th>Shell</th><td>").append(esc(shellVersion)).append("</td></tr>");
         sb.append("<tr><th>Port</th><td class=mono>").append(port).append("</td></tr>");
         sb.append("</table></div>");
 
@@ -223,29 +243,52 @@ public final class Pages {
         return sb.toString();
     }
 
+    private static String describedShell(String shellVersion) {
+        if (shellVersion == null || shellVersion.length() == 0) return "shell ready";
+        return esc(shellVersion);
+    }
+
     private static final String DASHBOARD_JS =
             "(function(){" +
             "var f=document.getElementById('cmdform'),o=document.getElementById('out')," +
-            "b=document.getElementById('runbtn'),i=document.getElementById('cmd');" +
-            "var hist=[],hi=-1;" +
-            "function post(body){return fetch('/api/run',{method:'POST'," +
+            "b=document.getElementById('runbtn'),i=document.getElementById('cmd')," +
+            "cid=document.getElementById('consoleid');" +
+            "if(!f)return;var hist=[],hi=-1,busy=false;" +
+            "function esc(t){return String(t).replace(/[&<>]/g,function(c){" +
+            "return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}" +
+            "function post(url,body){return fetch(url,{method:'POST'," +
             "headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body," +
-            "credentials:'same-origin'}).then(function(r){return r.json().then(function(j){" +
-            "return {s:r.status,j:j};});});}" +
+            "credentials:'same-origin'}).then(function(r){return r.json();});}" +
+            "function tail(){return fetch('/api/output?id='+encodeURIComponent(cid.value)+" +
+            "'&lines=400',{credentials:'same-origin'}).then(function(r){return r.json();});}" +
+            "function paint(text){var atEnd=o.scrollTop+o.clientHeight>=o.scrollHeight-40;" +
+            "o.textContent=text;if(atEnd)o.scrollTop=o.scrollHeight;}" +
             "f.addEventListener('submit',function(ev){ev.preventDefault();" +
-            "var cmd=i.value.trim();if(!cmd)return;hist.push(cmd);hi=hist.length;" +
-            "b.disabled=true;o.textContent='$ '+cmd+'\\n\\n…';" +
-            "post('cmd='+encodeURIComponent(cmd)).then(function(res){" +
-            "o.textContent='$ '+cmd+'\\n\\n'+(res.j.output||res.j.error||'(no output)');" +
-            "}).catch(function(e){o.textContent='Request failed: '+e.message;})" +
-            ".then(function(){b.disabled=false;f.scrollIntoView({block:'nearest'});i.focus();});});" +
+            "var cmd=i.value.trim();if(!cmd||busy)return;hist.push(cmd);hi=hist.length;" +
+            "busy=true;b.disabled=true;o.textContent+='\\n$ '+cmd+'\\n';" +
+            "o.scrollTop=o.scrollHeight;" +
+            "post('/api/run','console='+encodeURIComponent(cid.value)+'&cmd='+encodeURIComponent(cmd))" +
+            ".then(function(j){if(j.error){o.textContent+='[error] '+j.error+'\\n';}else{" +
+            "o.textContent=(j.tail||o.textContent);}o.scrollTop=o.scrollHeight;i.value='';})" +
+            ".catch(function(e){o.textContent+='[request failed] '+e.message+'\\n';})" +
+            ".then(function(){busy=false;b.disabled=false;i.focus();});});" +
             "i.addEventListener('keydown',function(e){if(e.key==='ArrowUp'&&hi>0){hi--;i.value=hist[hi];" +
             "e.preventDefault();}else if(e.key==='ArrowDown'&&hi<hist.length-1){hi++;i.value=hist[hi];" +
             "e.preventDefault();}});" +
-            "document.getElementById('clearout').addEventListener('click',function(){o.textContent='Ready.';});" +
-            // keep the device/status cards fresh without touching the console output
-            "setInterval(function(){fetch('/api/ping',{credentials:'same-origin'}).then(function(r){" +
-            "if(r.status===401){location.reload();}}).catch(function(){});},8000);" +
+            "document.getElementById('clearout').addEventListener('click',function(){" +
+            "post('/api/console/clear','id='+encodeURIComponent(cid.value)).then(function(){o.textContent='';});});" +
+            "document.getElementById('killconsole').addEventListener('click',function(){" +
+            "if(!confirm('Delete this console?'))return;" +
+            "post('/api/console/delete','id='+encodeURIComponent(cid.value))" +
+            ".then(function(j){if(j.error){alert(j.error);}else{location.href='/';}});});" +
+            "document.getElementById('newconsole').addEventListener('click',function(){" +
+            "var name=prompt('Name for the new console','work');if(!name)return;" +
+            "post('/api/console/new','name='+encodeURIComponent(name))" +
+            ".then(function(j){if(j.id){location.href='/?c='+encodeURIComponent(j.id);}" +
+            "else if(j.error){alert(j.error);}});});" +
+            "setInterval(function(){if(busy||document.hidden)return;tail().then(function(j){" +
+            "if(j.tail!==undefined)paint(j.tail);" +
+            "if(j.expired){location.reload();}}).catch(function(){});},2500);" +
             "})();";
 
     /* ── small helpers ───────────────────────────────────────────────────── */

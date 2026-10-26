@@ -1,4 +1,4 @@
-package com.nishgamerrz.relaydash;
+package com.nishgamerrz.nishgamerr;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -37,14 +37,15 @@ public final class WebServer implements Runnable {
     }
 
     private static final long SESSION_TTL_MS = 12L * 60L * 60L * 1000L;
-    private static final int MAX_BODY = 8 * 1024;
+    private static final int MAX_BODY = 16 * 1024;
     private static final int MAX_FAILS = 8;
     private static final long FAIL_WINDOW_MS = 5L * 60L * 1000L;
 
     private final int port;
     private volatile Auth auth;
     private final DeviceLog devices;
-    private final CommandRunner runner;
+    private final ConsoleManager consoles;
+    private volatile String shellVersion;
     private final String hostName;
     private final String version;
     private final String deviceModel;
@@ -59,13 +60,19 @@ public final class WebServer implements Runnable {
     private final Map<String, Long> sessions = new ConcurrentHashMap<String, Long>();
     private final Map<String, long[]> failures = new ConcurrentHashMap<String, long[]>();
 
-    public WebServer(int port, Auth auth, DeviceLog devices, CommandRunner runner,
+    /** The shell installs in the background, long after the socket is up. */
+    public void setShellVersion(String version) {
+        this.shellVersion = version == null ? "" : version;
+    }
+
+    public WebServer(int port, Auth auth, DeviceLog devices, ConsoleManager consoles,
                      String hostName, String version, String deviceModel,
-                     String androidVersion, Listener listener) {
+                     String androidVersion, String shellVersion, Listener listener) {
         this.port = port;
         this.auth = auth;
         this.devices = devices;
-        this.runner = runner;
+        this.consoles = consoles;
+        this.shellVersion = shellVersion == null ? "" : shellVersion;
         this.hostName = hostName;
         this.version = version;
         this.deviceModel = deviceModel;
@@ -279,11 +286,69 @@ public final class WebServer implements Runnable {
 
         // ── authenticated ──
         if (isGet && ("/".equals(path) || "/index.html".equals(path))) {
+            Map<String, String> q = parseForm(query);
+            String selected = q.get("c");
             devices.touch(ip, agent, "/");
             List<DeviceLog.Entry> list = devices.snapshot();
             writeHtml(out, 200, Pages.dashboard(hostName, version, url(), uptimeMs(),
                     port, deviceModel, androidVersion, list, System.currentTimeMillis(),
-                    auth.isConfigured()));
+                    auth.isConfigured(), consoles, selected, shellVersion));
+            return;
+        }
+
+        if (isGet && "/api/output".equals(path)) {
+            Map<String, String> q = parseForm(query);
+            String id = q.get("id");
+            int lines = 400;
+            try {
+                lines = Integer.parseInt(q.get("lines") == null ? "400" : q.get("lines"));
+            } catch (NumberFormatException ignored) {
+            }
+            if (lines < 20) lines = 20;
+            if (lines > 800) lines = 800;
+            String tail = consoles.tail(id, lines);
+            writeJson(out, 200, "{\"ok\":true,\"id\":\"" + json(consoles.get(id) == null
+                    ? ConsoleManager.DEFAULT_ID : consoles.get(id).id())
+                    + "\",\"tail\":\"" + json(tail) + "\"}");
+            return;
+        }
+
+        if (isPost && "/api/console/new".equals(path)) {
+            Map<String, String> form = parseForm(body);
+            String name = form.get("name");
+            if (name == null || name.trim().length() == 0) {
+                writeJson(out, 400, "{\"ok\":false,\"error\":\"give the console a name\"}");
+                return;
+            }
+            if (consoles.size() >= 8) {
+                writeJson(out, 400, "{\"ok\":false,\"error\":\"8 consoles is the limit\"}");
+                return;
+            }
+            ShellSession created = consoles.create(null, name);
+            devices.touch(ip, agent, "/api/console/new");
+            writeJson(out, 200, "{\"ok\":true,\"id\":\"" + json(created.id())
+                    + "\",\"name\":\"" + json(created.name()) + "\"}");
+            return;
+        }
+
+        if (isPost && "/api/console/delete".equals(path)) {
+            Map<String, String> form = parseForm(body);
+            boolean done = consoles.remove(form.get("id"));
+            devices.touch(ip, agent, "/api/console/delete");
+            if (!done) {
+                writeJson(out, 400, "{\"ok\":false,\"error\":\"" +
+                        json(consoles.size() <= 1 ? "Keep at least one console"
+                                : "no such console") + "\"}");
+                return;
+            }
+            writeJson(out, 200, "{\"ok\":true}");
+            return;
+        }
+
+        if (isPost && "/api/console/clear".equals(path)) {
+            Map<String, String> form = parseForm(body);
+            consoles.clear(form.get("id"));
+            writeJson(out, 200, "{\"ok\":true}");
             return;
         }
 
@@ -322,13 +387,19 @@ public final class WebServer implements Runnable {
         if (isPost && "/api/run".equals(path)) {
             Map<String, String> form = parseForm(body);
             String cmd = form.get("cmd");
+            String consoleId = form.get("console");
             if (cmd == null || cmd.trim().length() == 0) {
                 writeJson(out, 400, "{\"ok\":false,\"error\":\"empty command\"}");
                 return;
             }
+            ShellSession session = consoles.get(consoleId);
             devices.touch(ip, agent, "/api/run");
-            String output = runner.run(cmd);
-            writeJson(out, 200, "{\"ok\":true,\"output\":\"" + json(output) + "\"}");
+            String output = consoles.run(consoleId, cmd);
+            String tail = consoles.tail(consoleId, 400);
+            writeJson(out, 200, "{\"ok\":true,\"console\":\"" +
+                    json(session == null ? ConsoleManager.DEFAULT_ID : session.id())
+                    + "\",\"output\":\"" + json(output)
+                    + "\",\"tail\":\"" + json(tail) + "\"}");
             return;
         }
 
@@ -427,6 +498,8 @@ public final class WebServer implements Runnable {
           .append("\",\"uptime_ms\":").append(uptimeMs())
           .append(",\"devices\":").append(devices.size())
           .append(",\"sessions\":").append(sessionCount())
+          .append(",\"consoles\":").append(consoles.size())
+          .append(",\"shell\":\"").append(json(shellVersion)).append("\"")
           .append(",\"password_set\":").append(auth.isConfigured())
           .append(",\"host\":\"").append(json(deviceModel))
           .append("\",\"android\":\"").append(json(androidVersion))
