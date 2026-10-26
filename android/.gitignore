@@ -1,7 +1,0 @@
-# fetched build toolchain (tools/fetch-toolchain.sh recreates it)
-.tools/
-# build output that is also copied to the repo root
-dist/
-# apktool's intermediate build cache
-build/
-apk.out/
