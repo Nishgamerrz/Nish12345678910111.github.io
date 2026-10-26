@@ -12,6 +12,7 @@ if [ -z "${PREFIX:-}" ]; then
 fi
 
 DIR="$HOME/.ac-consoles"
+BACKGROUND_UPDATE="${AC_BACKGROUND_UPDATE:-0}"
 PREFERENCES_FILE="$DIR/preferences.json"
 INSTALL_LOG="$DIR/install.log"
 mkdir -p "$DIR" "$DIR/output" "$DIR/history" "$HOME/.screen"
@@ -73,7 +74,9 @@ THEME_ID="$(load_saved_theme)"
 # resetting it or blocking forever waiting for input.
 INSTALLER_INPUT_FD=0
 INSTALLER_INTERACTIVE=0
-if [ -t 0 ]; then
+if [ "$BACKGROUND_UPDATE" = "1" ]; then
+    : # Never open /dev/tty or display setup screens during automatic updates.
+elif [ -t 0 ]; then
     INSTALLER_INTERACTIVE=1
 elif (exec 3</dev/tty) 2>/dev/null; then
     # Probe in a subshell first: a failed exec redirection must not terminate
@@ -191,16 +194,23 @@ install_dependencies() {
     run_dependency_step "Installing Python and GNU Screen" "$step" "$total" pkg install -y python screen
 }
 
-# 1) Style selection happens first. 2) Packages are installed afterwards.
-select_installer_theme
-install_dependencies
+# Normal installs choose a style before packages. Background updates preserve
+# the saved style and never invoke pkg or show an installer GUI.
+if [ "$BACKGROUND_UPDATE" = "1" ]; then
+    save_preferences
+else
+    select_installer_theme
+    install_dependencies
+fi
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required."; exit 1; }
 command -v screen >/dev/null 2>&1 || { echo "ERROR: screen is required."; exit 1; }
 
 # Stop only the old Web UI process. Existing screen consoles are left alone.
+WEBUI_WAS_RUNNING=0
 if [ -f "$DIR/webui.pid" ]; then
     old_pid="$(cat "$DIR/webui.pid" 2>/dev/null || true)"
     if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
+        WEBUI_WAS_RUNNING=1
         kill "$old_pid" 2>/dev/null || true
         sleep 0.3
     fi
@@ -237,7 +247,7 @@ for old_ts_archive in "$DIR/downloads"/tailscale_*.tgz; do
 done
 rmdir "$DIR/bin" "$DIR/downloads" 2>/dev/null || true
 
-cat > "$DIR/webui.py" <<'PYEOF'
+cat > "$DIR/webui.py.tmp" <<'PYEOF'
 #!/usr/bin/env python3
 """Console Manager Web UI.
 
@@ -502,10 +512,10 @@ input::placeholder { color: var(--muted); }
 .terminal-title { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
 .terminal-title .lights { color: var(--muted); letter-spacing: 4px; }
 .terminal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.terminal-actions .btn { padding: 7px 10px; }
+.terminal-actions .btn { min-width: 36px; min-height: 36px; padding: 7px 10px; }
 .terminal-output {
   height: min(58vh, 590px); min-height: 300px; margin: 0; padding: 17px;
-  overflow: auto; overscroll-behavior: contain; background: var(--terminal-bg); color: var(--terminal-text);
+  overflow: auto; overflow-y: scroll; overscroll-behavior: contain; background: var(--terminal-bg); color: var(--terminal-text);
   -webkit-overflow-scrolling: touch; touch-action: pan-y; scrollbar-gutter: stable;
   scrollbar-width: thin; scrollbar-color: var(--blue-2) var(--terminal-bar);
   font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1413,7 +1423,7 @@ if __name__ == "__main__":
             server.server_close()
 PYEOF
 
-cat > "$PREFIX/bin/ac" <<'MAINEOF'
+cat > "$PREFIX/bin/ac.tmp" <<'MAINEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 SESSION_PREFIX="ac_"
 DIR="$HOME/.ac-consoles"
@@ -1421,6 +1431,11 @@ RC="$DIR/screenrc"
 WEBUI_PY="$DIR/webui.py"
 WEBUI_PID_FILE="$DIR/webui.pid"
 WEBUI_LOG="$DIR/webui.log"
+UPDATER_PY="$DIR/updater.py"
+UPDATE_DISABLED="$DIR/update-disabled"
+UPDATE_LAST_CHECK="$DIR/update-last-check"
+UPDATE_LOG="$DIR/update.log"
+UPDATE_INTERVAL=21600
 PREFERENCES_FILE="$DIR/preferences.json"
 WEB_HOST="${AC_WEB_HOST:-0.0.0.0}"
 WEB_PORT="${AC_WEB_PORT:-5000}"
@@ -1619,6 +1634,45 @@ webui_stop() {
 webui_toggle() { webui_running && webui_stop || webui_start; }
 webui_status() { webui_running && printf "Web:ON :%s" "$WEB_PORT" || printf "Web:OFF"; }
 
+update_on() {
+    rm -f "$UPDATE_DISABLED"
+    echo "Background updates enabled: main GitHub branch, checked every 6 hours."
+}
+update_off() {
+    touch "$UPDATE_DISABLED"
+    chmod 600 "$UPDATE_DISABLED"
+    echo "Background updates disabled. Run 'ac update-on' to enable them again."
+}
+update_status() {
+    if [ -f "$UPDATE_DISABLED" ]; then echo "Background updates: OFF";
+    else echo "Background updates: ON (main GitHub branch, every 6 hours)"; fi
+    if [ -f "$UPDATE_LAST_CHECK" ]; then
+        local last="$(cat "$UPDATE_LAST_CHECK" 2>/dev/null)"
+        printf "Last check: %s\n" "$(date -d "@$last" 2>/dev/null || printf "%s" "$last")"
+    else
+        echo "Last check: not yet"
+    fi
+    echo "Update log: $UPDATE_LOG"
+}
+schedule_auto_update() {
+    local command="${1:-}" now last=0
+    case "$command" in update|update-on|update-off|update-status) return ;; esac
+    [ "${AC_DISABLE_AUTO_UPDATE:-0}" = "1" ] && return
+    [ -f "$UPDATE_DISABLED" ] && return
+    [ -f "$UPDATER_PY" ] && [ -f "$DIR/installer.txt" ] || return
+    [ -d "$DIR/update.lock" ] && return
+    now="$(date +%s)"
+    if [ -f "$UPDATE_LAST_CHECK" ]; then last="$(cat "$UPDATE_LAST_CHECK" 2>/dev/null)"; fi
+    case "$last" in ''|*[!0-9]*) last=0 ;; esac
+    [ $((now - last)) -lt "$UPDATE_INTERVAL" ] && return
+    # Fully detached: no update text or installer GUI may cover the dashboard.
+    if command -v setsid >/dev/null 2>&1; then
+        nohup setsid env AC_DISABLE_AUTO_UPDATE=1 python3 "$UPDATER_PY" </dev/null >>"$UPDATE_LOG" 2>&1 &
+    else
+        nohup env AC_DISABLE_AUTO_UPDATE=1 python3 "$UPDATER_PY" </dev/null >>"$UPDATE_LOG" 2>&1 &
+    fi
+}
+
 list_names() {
     screen -ls 2>/dev/null | sed -n "s/^[[:space:]]*[0-9]*\.${SESSION_PREFIX}\([A-Za-z0-9][A-Za-z0-9_-]*\).*/\1/p"
 }
@@ -1730,6 +1784,10 @@ Console Manager (ac):
   ac webui-stop      Stop Web UI
   ac webui-status    Show Web UI status and URLs
   ac webui-urls      Show local + same-Wi-Fi URLs again
+  ac update          Check main GitHub branch and update now
+  ac update-on       Enable quiet background updates (default)
+  ac update-off      Disable background updates
+  ac update-status   Show auto-update state and last check
 
 Dashboard keys:
   U / D       Move up / down
@@ -1858,6 +1916,8 @@ dashboard() {
     done
 }
 
+schedule_auto_update "${1:-}"
+
 case "${1:-}" in
     list) list_names ;;
     create) create_console "${2:-}" ;;
@@ -1871,14 +1931,142 @@ case "${1:-}" in
         webui_status; echo
         if webui_running; then WEBUI_IP_TRIED=0; show_webui_urls; fi ;;
     webui-urls) WEBUI_IP_TRIED=0; show_webui_urls ;;
+    update) python3 "$UPDATER_PY" --force ;;
+    update-on) update_on ;;
+    update-off) update_off ;;
+    update-status) update_status ;;
     help|--help|-h) show_help ;;
     "") dashboard ;;
     *) echo "Unknown command."; show_help; exit 1 ;;
 esac
 MAINEOF
 
-chmod 700 "$DIR/webui.py"
-chmod +x "$PREFIX/bin/ac"
+cat > "$DIR/updater.py.tmp" <<'UPDATEEOF'
+#!/usr/bin/env python3
+"""Quiet, locked updater for the Console Manager main-branch release."""
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+DIR = Path.home() / ".ac-consoles"
+INSTALLED = DIR / "installer.txt"
+DOWNLOAD = DIR / "update-download.txt"
+LOCK = DIR / "update.lock"
+LAST_CHECK = DIR / "update-last-check"
+DISABLED = DIR / "update-disabled"
+UPDATE_LOG = DIR / "update.log"
+URL = os.environ.get(
+    "AC_UPDATE_URL",
+    "https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/console%20manager.txt",
+)
+INTERVAL = 6 * 60 * 60
+MAX_SIZE = 4 * 1024 * 1024
+force = "--force" in sys.argv
+
+
+def record_check():
+    temporary = LAST_CHECK.with_suffix(".tmp")
+    temporary.write_text(str(int(time.time())) + "\n", encoding="ascii")
+    os.replace(temporary, LAST_CHECK)
+
+
+def acquire_lock():
+    try:
+        LOCK.mkdir()
+        return True
+    except FileExistsError:
+        try:
+            stale = time.time() - LOCK.stat().st_mtime > 3600
+        except OSError:
+            stale = False
+        if not stale:
+            return False
+        shutil.rmtree(LOCK, ignore_errors=True)
+        try:
+            LOCK.mkdir()
+            return True
+        except FileExistsError:
+            return False
+
+
+def valid_installer(data):
+    return (
+        10000 < len(data) <= MAX_SIZE
+        and data.startswith(b"#!/data/data/com.termux/files/usr/bin/bash")
+        and b"Console Manager" in data
+        and b"\nPYEOF\n" in data
+        and b"\nMAINEOF\n" in data
+    )
+
+
+def run_update():
+    if DISABLED.exists() and not force:
+        return
+    now = int(time.time())
+    if not force and LAST_CHECK.exists():
+        try:
+            if now - int(LAST_CHECK.read_text(encoding="ascii").strip()) < INTERVAL:
+                return
+        except (OSError, ValueError):
+            pass
+    record_check()
+    if force:
+        print("Checking Console Manager main branch for updates…")
+    request = urllib.request.Request(URL, headers={"User-Agent": "Console-Manager-Updater"})
+    with urllib.request.urlopen(request, timeout=45) as response:
+        data = response.read(MAX_SIZE + 1)
+    if not valid_installer(data):
+        raise RuntimeError("The main-branch download was incomplete or invalid.")
+    if INSTALLED.exists() and hashlib.sha256(INSTALLED.read_bytes()).digest() == hashlib.sha256(data).digest():
+        print("Console Manager is already up to date.")
+        return
+    temporary = DOWNLOAD.with_suffix(".tmp")
+    temporary.write_bytes(data)
+    temporary.chmod(0o600)
+    os.replace(temporary, DOWNLOAD)
+    environment = os.environ.copy()
+    environment["AC_BACKGROUND_UPDATE"] = "1"
+    environment["AC_DISABLE_AUTO_UPDATE"] = "1"
+    with UPDATE_LOG.open("a", encoding="utf-8") as log:
+        log.write("\n--- Background update %s ---\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+        result = subprocess.run(
+            ["bash", str(DOWNLOAD)],
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=environment,
+            timeout=180,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"Installer exited with status {result.returncode}; see {UPDATE_LOG}")
+    print("Console Manager updated from the main GitHub branch.")
+
+
+if not os.environ.get("PREFIX"):
+    raise SystemExit("Auto-update requires Termux (PREFIX is not set).")
+if not acquire_lock():
+    raise SystemExit(0)
+try:
+    try:
+        run_update()
+    except Exception as error:
+        print(f"Console Manager update failed: {error}", file=sys.stderr)
+        if force:
+            raise SystemExit(1)
+finally:
+    shutil.rmtree(LOCK, ignore_errors=True)
+UPDATEEOF
+
+chmod 700 "$DIR/webui.py.tmp" "$DIR/updater.py.tmp"
+chmod +x "$PREFIX/bin/ac.tmp"
+mv -f "$DIR/webui.py.tmp" "$DIR/webui.py"
+mv -f "$DIR/updater.py.tmp" "$DIR/updater.py"
+mv -f "$PREFIX/bin/ac.tmp" "$PREFIX/bin/ac"
 
 # Keep the original convenience console and start the Web UI quietly so the
 # installer remains a clean GUI. Existing live consoles are never recreated.
@@ -1886,9 +2074,20 @@ if ! bash "$PREFIX/bin/ac" create 1 >> "$INSTALL_LOG" 2>&1; then
     echo "Console Manager could not create the default console. See $INSTALL_LOG"
     exit 1
 fi
-if ! bash "$PREFIX/bin/ac" webui-start >> "$INSTALL_LOG" 2>&1; then
-    echo "Console Manager installed, but the Web UI could not start. See $INSTALL_LOG"
-    exit 1
+if { [ "$BACKGROUND_UPDATE" != "1" ] || [ "$WEBUI_WAS_RUNNING" = "1" ]; }; then
+    if ! bash "$PREFIX/bin/ac" webui-start >> "$INSTALL_LOG" 2>&1; then
+        echo "Console Manager installed, but the Web UI could not start. See $INSTALL_LOG"
+        exit 1
+    fi
+fi
+
+# Keep an exact installed-source fingerprint for quiet main-branch update checks.
+if [ -f "$0" ]; then
+    cp "$0" "$DIR/installer.txt.tmp"
+    mv -f "$DIR/installer.txt.tmp" "$DIR/installer.txt"
+fi
+if [ "$BACKGROUND_UPDATE" = "1" ]; then
+    exit 0
 fi
 
 FINAL_WEB_HOST="${AC_WEB_HOST:-0.0.0.0}"
@@ -1920,6 +2119,8 @@ case "$FINAL_WEB_HOST" in
         fi ;;
 esac
 printf "  Show URLs again:   ac webui-urls\n"
+printf "  Auto updates:      ON (main GitHub branch, every 6 hours)\n"
+printf "  Update settings:   ac update-status\n"
 printf "  Login:             No password; use a trusted Wi-Fi network\n"
 printf "  Change style:      ac theme\n\n"
 printf "  Dashboard controls: U/D/L/R move, Enter opens, T changes style.\n"
