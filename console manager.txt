@@ -498,15 +498,22 @@ input::placeholder { color: var(--muted); }
 .console-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .console-heading h2 { font-size: 18px; overflow-wrap: anywhere; }
 .terminal-window { border-radius: 16px; overflow: hidden; }
-.terminal-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; background: var(--terminal-bar); border-bottom: 1px solid var(--line); }
+.terminal-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 11px 14px; background: var(--terminal-bar); border-bottom: 1px solid var(--line); }
 .terminal-title { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
 .terminal-title .lights { color: var(--muted); letter-spacing: 4px; }
+.terminal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.terminal-actions .btn { padding: 7px 10px; }
 .terminal-output {
   height: min(58vh, 590px); min-height: 300px; margin: 0; padding: 17px;
   overflow: auto; overscroll-behavior: contain; background: var(--terminal-bg); color: var(--terminal-text);
+  -webkit-overflow-scrolling: touch; touch-action: pan-y; scrollbar-gutter: stable;
+  scrollbar-width: thin; scrollbar-color: var(--blue-2) var(--terminal-bar);
   font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; user-select: text;
 }
+.terminal-output::-webkit-scrollbar { width: 10px; }
+.terminal-output::-webkit-scrollbar-track { background: var(--terminal-bar); }
+.terminal-output::-webkit-scrollbar-thumb { background: var(--blue-2); border-radius: 8px; }
 .command-dock { position: relative; padding: 13px; background: var(--terminal-bar); border-top: 1px solid var(--line); }
 .command-form { display: flex; gap: 9px; }
 .command-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -549,6 +556,8 @@ input::placeholder { color: var(--muted); }
   .console-meta { min-width: 120px; }
   .card-actions { width: 100%; padding-left: 49px; }
   .card-actions .btn-primary { flex: 1; }
+  .terminal-title { width: 100%; }
+  .terminal-actions { width: 100%; justify-content: flex-end; }
   .terminal-output { height: 55vh; min-height: 260px; padding: 13px; font-size: 12px; }
   .command-form .btn { padding-left: 15px; padding-right: 15px; }
 }
@@ -594,8 +603,13 @@ input::placeholder { color: var(--muted); }
     </div>
     <div class="terminal-window">
       <div class="terminal-bar">
-        <div class="terminal-title"><span class="lights" aria-hidden="true">●●●</span><span>Real bash output · scrollback restored</span></div>
-        <button class="btn btn-ghost" id="refreshOutput" type="button">Refresh</button>
+        <div class="terminal-title"><span class="lights" aria-hidden="true">●●●</span><span>Real bash output · swipe or use ↑ ↓</span></div>
+        <div class="terminal-actions">
+          <button class="btn btn-ghost" id="scrollUp" type="button" aria-label="Scroll output up" title="Scroll up">↑</button>
+          <button class="btn btn-ghost" id="scrollDown" type="button" aria-label="Scroll output down" title="Scroll down">↓</button>
+          <button class="btn btn-primary" id="latestOutput" type="button" hidden>Latest</button>
+          <button class="btn btn-ghost" id="refreshOutput" type="button">Refresh</button>
+        </div>
       </div>
       <pre class="terminal-output" id="terminalOutput" tabindex="0">Loading console output…</pre>
       <div class="command-dock">
@@ -614,7 +628,7 @@ input::placeholder { color: var(--muted); }
 'use strict';
 const byId = id => document.getElementById(id);
 const state = {
-  consoles: [], active: null, output: '', outputBusy: false,
+  consoles: [], active: null, output: '', outputBusy: false, followOutput: true,
   suggestions: [], suggestionIndex: -1, suggestTimer: null, toastTimer: null,
   theme: document.body.dataset.theme || 'purple', themes: []
 };
@@ -733,17 +747,37 @@ async function deleteConsole(name) {
     notify(`Console “${name}” deleted.`); await refreshDashboard(true);
   } catch (error) { notify(error.message, true); }
 }
+function nearOutputBottom(terminal) {
+  return terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight <= 24;
+}
+function updateOutputFollow() {
+  const terminal = byId('terminalOutput');
+  state.followOutput = nearOutputBottom(terminal);
+  byId('latestOutput').hidden = state.followOutput;
+}
+function scrollOutputToLatest() {
+  const terminal = byId('terminalOutput');
+  state.followOutput = true;
+  terminal.scrollTop = terminal.scrollHeight;
+  byId('latestOutput').hidden = true;
+}
+function scrollOutputByPage(direction) {
+  const terminal = byId('terminalOutput');
+  terminal.scrollBy({ top: direction * Math.max(100, terminal.clientHeight * 0.75), behavior: 'smooth' });
+}
 async function openConsole(name) {
-  state.active = name; state.output = ''; hideSuggestions();
+  state.active = name; state.output = ''; state.followOutput = true; hideSuggestions();
   byId('dashboardView').hidden = true; byId('consoleView').hidden = false;
   byId('activeName').textContent = name;
+  byId('latestOutput').hidden = true;
+  byId('terminalOutput').scrollTop = 0;
   byId('terminalOutput').textContent = 'Loading console output…';
   history.replaceState(null, '', `#${encodeURIComponent(name)}`);
   await loadOutput(true);
   byId('commandInput').focus();
 }
 function closeConsole() {
-  state.active = null; state.output = ''; hideSuggestions();
+  state.active = null; state.output = ''; state.followOutput = true; hideSuggestions();
   byId('consoleView').hidden = true; byId('dashboardView').hidden = false;
   history.replaceState(null, '', location.pathname);
   refreshDashboard(true);
@@ -757,10 +791,16 @@ async function loadOutput(forceScroll = false) {
     if (state.active !== name) return;
     if (data.output !== state.output || forceScroll) {
       const terminal = byId('terminalOutput');
-      const nearBottom = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 90;
+      const previousTop = terminal.scrollTop;
+      const stickToBottom = forceScroll || state.followOutput || nearOutputBottom(terminal);
       state.output = data.output;
       terminal.textContent = data.output || '(No output in this console yet.)';
-      if (forceScroll || nearBottom) terminal.scrollTop = terminal.scrollHeight;
+      if (stickToBottom) scrollOutputToLatest();
+      else {
+        // Keep the exact reading position while new output arrives underneath.
+        terminal.scrollTop = previousTop;
+        updateOutputFollow();
+      }
     }
   } catch (error) {
     if (state.active === name) notify(error.message, true);
@@ -775,7 +815,7 @@ async function executeCommand(event) {
   try {
     await api('/api/execute', jsonOptions({ name: state.active, command }));
     input.value = '';
-    setTimeout(() => loadOutput(), 250);
+    setTimeout(() => loadOutput(true), 250);
   } catch (error) { notify(error.message, true); }
   finally { button.disabled = false; input.focus(); }
 }
@@ -839,7 +879,11 @@ byId('commandInput').addEventListener('input', queueSuggestions);
 byId('commandInput').addEventListener('keydown', commandKeys);
 byId('commandInput').addEventListener('blur', () => setTimeout(hideSuggestions, 120));
 byId('backButton').addEventListener('click', closeConsole);
-byId('refreshOutput').addEventListener('click', () => loadOutput(true));
+byId('terminalOutput').addEventListener('scroll', updateOutputFollow, { passive: true });
+byId('scrollUp').addEventListener('click', () => scrollOutputByPage(-1));
+byId('scrollDown').addEventListener('click', () => scrollOutputByPage(1));
+byId('latestOutput').addEventListener('click', scrollOutputToLatest);
+byId('refreshOutput').addEventListener('click', () => loadOutput());
 setInterval(() => { if (!document.hidden && state.active) loadOutput(); }, 1200);
 setInterval(() => { if (!document.hidden && !state.active) refreshDashboard(); }, 3500);
 
