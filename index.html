@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>nish12345678910111 — White Room Cutscene (0:00 – 3:12)</title>
+  <style>
+    :root {
+      --bg-dark: #090a0d;
+      --panel-bg: rgba(14, 16, 22, 0.84);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --text-main: #f5f7fa;
+      --text-muted: #9aa3b2;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.32);
+      --danger: #f43f5e;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--sans);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Fullscreen Viewport Stage */
+    #stage-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #cutscene-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #e8e8e6;
+    }
+
+    #mp4-player {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: none;
+      background: #000;
+    }
+
+    /* Pure Black Fade Overlay (synced with 2:55 -> 3:12 fade) */
+    #fade-overlay {
+      position: absolute;
+      inset: 0;
+      background: #000000;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Subtle Cinema Frame Guides */
+    .corner-reticle {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      border-color: rgba(0, 0, 0, 0.22);
+      pointer-events: none;
+      z-index: 6;
+      transition: opacity 0.35s ease, border-color 0.35s ease;
+    }
+    .reticle-tl { top: 24px; left: 24px; border-top: 1.5px solid; border-left: 1.5px solid; }
+    .reticle-tr { top: 24px; right: 24px; border-top: 1.5px solid; border-right: 1.5px solid; }
+    .reticle-bl { bottom: 112px; left: 24px; border-bottom: 1.5px solid; border-left: 1.5px solid; }
+    .reticle-br { bottom: 112px; right: 24px; border-bottom: 1.5px solid; border-right: 1.5px solid; }
+
+    /* Top Telemetry Bar */
+    #top-bar {
+      position: absolute;
+      top: 18px;
+      left: 24px;
+      right: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 20;
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+
+    .badge-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .glass-pill {
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 10px #22c55e;
+      animation: pulseDot 2s infinite ease-in-out;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.88); }
+    }
+
+    .mono-val {
+      font-family: var(--mono);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .mode-switcher {
+      display: inline-flex;
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      border-radius: 999px;
+      padding: 3px;
+      gap: 3px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    }
+
+    .mode-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 13px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .mode-btn:hover {
+      color: var(--text-main);
+    }
+
+    .mode-btn.active {
+      background: var(--accent);
+      color: #06131f;
+      box-shadow: 0 0 14px var(--accent-glow);
+    }
+
+    .action-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-pill {
+      background: var(--panel-bg);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 7px 13px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    }
+
+    .btn-pill:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .btn-pill.primary {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #bae6fd;
+    }
+
+    /* Bottom Timeline Control Deck */
+    #control-deck {
+      position: absolute;
+      bottom: 18px;
+      left: 24px;
+      right: 24px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 20;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .timecode {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 112px;
+      letter-spacing: 0.03em;
+    }
+
+    .scrubber-wrap {
+      position: relative;
+      flex: 1;
+      height: 24px;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Visual marker showing 2:55 - 3:12 fade-to-black zone */
+    .fade-zone-indicator {
+      position: absolute;
+      right: 0;
+      width: 8.85%; /* (192 - 175) / 192 = 8.85% */
+      height: 6px;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.25), rgba(244, 63, 94, 0.75));
+      border-radius: 0 4px 4px 0;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    input[type="range"]#timeline-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 4px;
+      outline: none;
+      cursor: pointer;
+      position: relative;
+      z-index: 2;
+    }
+
+    input[type="range"]#timeline-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid #fff;
+      box-shadow: 0 0 10px var(--accent);
+      cursor: grab;
+    }
+
+    .controls-bottom-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .transport-left, .transport-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .ctrl-btn {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .ctrl-btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .telemetry-strip {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
+
+    /* Info / Luau Code Modal Drawer */
+    #drawer-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.68);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 24px;
+    }
+
+    #drawer-modal.open {
+      display: flex;
+    }
+
+    .modal-card {
+      width: min(880px, 96vw);
+      max-height: 86vh;
+      background: #10131a;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+    }
+
+    .modal-header {
+      padding: 16px 22px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-header h2 {
+      font-size: 16px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-body {
+      padding: 20px 22px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      user-select: text;
+    }
+
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 10px;
+    }
+
+    .asset-item {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+    }
+
+    .asset-item .asset-type {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .asset-item .asset-name {
+      font-weight: 600;
+      margin-top: 3px;
+      color: #fff;
+    }
+
+    .asset-item .asset-id {
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    pre.code-box {
+      background: #080a0e;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.5;
+      color: #d1d5db;
+      overflow-x: auto;
+      max-height: 320px;
+    }
+
+    /* Hidden HUD state */
+    body.hud-hidden #top-bar,
+    body.hud-hidden #control-deck,
+    body.hud-hidden .corner-reticle {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #hud-restore-hint {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      z-index: 30;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    body.hud-hidden #hud-restore-hint {
+      opacity: 0.65;
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage-container">
+    <!-- High-Precision Cutscene Canvas (Studio Render + 3D Rig Modes) -->
+    <canvas id="cutscene-canvas" width="1920" height="1080"></canvas>
+
+    <!-- Pre-rendered 3:12 MP4 Video Element -->
+    <video id="mp4-player" src="nish12345678910111-white-room.mp4" preload="auto" playsinline></video>
+
+    <!-- Pure Black Screen Fade Overlay (Gradually reaches 100% opacity at 3:12) -->
+    <div id="fade-overlay"></div>
+
+    <!-- Subtle Camera Viewfinder Reticles -->
+    <div class="corner-reticle reticle-tl"></div>
+    <div class="corner-reticle reticle-tr"></div>
+    <div class="corner-reticle reticle-bl"></div>
+    <div class="corner-reticle reticle-br"></div>
+
+    <!-- Top Bar -->
+    <div id="top-bar">
+      <div class="badge-group">
+        <div class="glass-pill">
+          <span class="status-dot"></span>
+          <span>TARGET: <strong>nish12345678910111</strong> (<span class="mono-val">nis0tm</span> · ID <span class="mono-val">3762390414</span>)</span>
+        </div>
+        <div class="glass-pill">
+          <span>SCENE: <strong>White Room Corner</strong> · <span class="mono-val" id="phase-badge">SLOW ZOOM IN (0:00 → 3:12)</span></span>
+        </div>
+      </div>
+
+      <div class="mode-switcher" role="tablist" aria-label="Render Engine Mode">
+        <button class="mode-btn active" data-mode="studio" id="btn-mode-studio">Studio HD Cutscene</button>
+        <button class="mode-btn" data-mode="rig3d" id="btn-mode-rig3d">3D Interactive Scene</button>
+        <button class="mode-btn" data-mode="mp4" id="btn-mode-mp4">Rendered MP4 (3:12)</button>
+      </div>
+
+      <div class="action-links">
+        <a class="btn-pill primary" href="nish12345678910111-white-room.mp4" download="nish12345678910111-white-room-3m12s.mp4">
+          ⬇ Download MP4 (3:12)
+        </a>
+        <button class="btn-pill" id="btn-open-drawer">
+          Roblox Luau Script &amp; Avatar Specs
+        </button>
+        <button class="btn-pill" id="btn-hide-hud" title="Hide UI Controls (Shortcut: H)">
+          Cinema View
+        </button>
+      </div>
+    </div>
+
+    <!-- Bottom Timeline & Camera Telemetry Deck -->
+    <div id="control-deck">
+      <div class="timeline-row">
+        <div class="timecode">
+          <span id="time-current" class="mono-val">0:00.0</span>
+          <span style="color: var(--text-muted)"> / 3:12.0</span>
+        </div>
+        <div class="scrubber-wrap" title="Scrub timeline from 0:00 to 3:12 (Fade to black starts at 2:55)">
+          <div class="fade-zone-indicator"></div>
+          <input type="range" id="timeline-slider" min="0" max="192" step="0.04" value="0" />
+        </div>
+        <div class="timecode" style="text-align: right; min-width: 135px;">
+          ZOOM: <span id="zoom-readout" class="mono-val">1.00×</span>
+        </div>
+      </div>
+
+      <div class="controls-bottom-row">
+        <div class="transport-left">
+          <button class="ctrl-btn active" id="btn-play-pause">⏸ Pause</button>
+          <button class="ctrl-btn" id="btn-restart">⏮ 0:00</button>
+          <button class="ctrl-btn" id="btn-jump-fade" title="Preview the end zoom & gradual fade to black (2:50 → 3:12)">⏭ Preview End Fade (2:50)</button>
+          <button class="ctrl-btn" id="btn-audio-toggle">🔇 Room Audio: Off</button>
+        </div>
+
+        <div class="telemetry-strip">
+          <span>FOCUS: <strong style="color:#fff">LOCKED (Corner 90°)</strong></span>
+          <span>LENS: <strong id="focal-readout" style="color:#fff">24.0 mm</strong></span>
+          <span>DIST: <strong id="dist-readout" style="color:#fff">22.0 studs</strong></span>
+          <span>FADE: <strong id="fade-readout" style="color:#fff">0%</strong></span>
+        </div>
+
+        <div class="transport-right">
+          <span style="font-size: 11px; color: var(--text-muted); margin-right: 4px;">SPEED:</span>
+          <button class="ctrl-btn active speed-btn" data-speed="1">1×</button>
+          <button class="ctrl-btn speed-btn" data-speed="2">2×</button>
+          <button class="ctrl-btn speed-btn" data-speed="5">5×</button>
+          <button class="ctrl-btn speed-btn" data-speed="12">12×</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-pill" id="hud-restore-hint">Show Controls (H)</button>
+  </div>
+
+  <!-- Avatar & Roblox Luau Script Modal -->
+  <div id="drawer-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>
+          <span>nish12345678910111 (UserId: 3762390414) — Authentic Avatar &amp; Roblox Cutscene Script</span>
+        </h2>
+        <div style="display:flex; gap:8px;">
+          <a class="btn-pill primary" href="white-room-cutscene.luau" download="white-room-cutscene.luau">⬇ Download .luau</a>
+          <button class="btn-pill" id="btn-copy-luau">Copy Luau Script</button>
+          <button class="btn-pill" id="btn-close-drawer">✕ Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div>
+          <h3 style="font-size:13px; color:var(--text-muted); margin-bottom:10px; text-transform:uppercase; letter-spacing:0.05em;">
+            Live Equipped Roblox Avatar Assets (Fetched from avatar.roblox.com/v1/users/3762390414/avatar)
+          </h3>
+          <div class="asset-grid">
+            <div class="asset-item">
+              <div class="asset-type">Hat Accessory</div>
+              <div class="asset-name">Ready Player Two Book</div>
+              <div class="asset-id">Asset ID: 5971691715 (Scale 1.2×)</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Hair Accessory</div>
+              <div class="asset-name">Pal Hair</div>
+              <div class="asset-id">Asset ID: 63690008</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Shoulder Accessory</div>
+              <div class="asset-name">Glitch Animated Lightning Dragon Heads</div>
+              <div class="asset-id">Asset ID: 101876501735938 (Black/White)</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Neck Accessory</div>
+              <div class="asset-name">Jade Necklace with Shell Pendant</div>
+              <div class="asset-id">Asset ID: 376527115</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Jacket &amp; T-Shirt</div>
+              <div class="asset-name">Zip Hoodie - Black + "I love roblox"</div>
+              <div class="asset-id">IDs: 7192553841 &amp; 8994181604</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Pants &amp; Shoes</div>
+              <div class="asset-name">Casual Sweats Black / White Shoes</div>
+              <div class="asset-id">IDs: 6984763785 &amp; 398633812</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Back &amp; Front Aura</div>
+              <div class="asset-name">Silver Block + RIA 2025 Interstellar Aura</div>
+              <div class="asset-id">IDs: 71409823493730 &amp; 113177392561115</div>
+            </div>
+            <div class="asset-item">
+              <div class="asset-type">Rig &amp; Body Color</div>
+              <div class="asset-name">R15 Man Package + Dylan Dynamic Head</div>
+              <div class="asset-id">BrickColor 1001 (Institutional White)</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 style="font-size:13px; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">
+            Roblox Studio / Executor Cutscene Script (white-room-cutscene.luau)
+          </h3>
+          <pre class="code-box" id="luau-code-block">Loading white-room-cutscene.luau...</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const TOTAL_DURATION = 192.0; // 0:00 to 3:12 (192 seconds)
+      const FADE_START = 175.0;     // 2:55 -> gradual fade to black ending at 3:12
+      const FADE_END = 191.3;
+
+      const canvas = document.getElementById('cutscene-canvas');
+      const ctx = canvas.getContext('2d', { alpha: false });
+      const mp4Player = document.getElementById('mp4-player');
+      const fadeOverlay = document.getElementById('fade-overlay');
+
+      const timeCurrentEl = document.getElementById('time-current');
+      const timelineSlider = document.getElementById('timeline-slider');
+      const zoomReadout = document.getElementById('zoom-readout');
+      const focalReadout = document.getElementById('focal-readout');
+      const distReadout = document.getElementById('dist-readout');
+      const fadeReadout = document.getElementById('fade-readout');
+      const phaseBadge = document.getElementById('phase-badge');
+
+      const btnPlayPause = document.getElementById('btn-play-pause');
+      const btnRestart = document.getElementById('btn-restart');
+      const btnJumpFade = document.getElementById('btn-jump-fade');
+      const btnAudioToggle = document.getElementById('btn-audio-toggle');
+      const btnHideHud = document.getElementById('btn-hide-hud');
+      const hudRestoreHint = document.getElementById('hud-restore-hint');
+
+      // Load high-resolution wide white-room master render & close-up render
+      const wideRoomImg = new Image();
+      wideRoomImg.src = 'assets/nish12345678910111-white-room-wide.png';
+      let wideLoaded = false;
+      wideRoomImg.onload = () => { wideLoaded = true; };
+
+      const closeRoomImg = new Image();
+      closeRoomImg.src = 'assets/nish12345678910111-corner-render.png';
+      let closeLoaded = false;
+      closeRoomImg.onload = () => { closeLoaded = true; };
+
+      // Playback state
+      let currentTime = 0.0;
+      let isPlaying = true;
+      let playbackSpeed = 1.0;
+      let renderMode = 'studio'; // 'studio' | 'rig3d' | 'mp4'
+      let lastFrameTs = performance.now();
+      let isScrubbing = false;
+
+      // Mouse parallax for 3D Rig mode (keeps focus locked on nish12345678910111)
+      let mouseYaw = 0;
+      let mousePitch = 0;
+      window.addEventListener('mousemove', (e) => {
+        const nx = (e.clientX / window.innerWidth) * 2 - 1;
+        const ny = (e.clientY / window.innerHeight) * 2 - 1;
+        mouseYaw = nx * 0.18;
+        mousePitch = ny * 0.10;
+      });
+
+      // Web Audio API Minimalist White-Room Ambient Soundscape
+      let audioCtx = null;
+      let masterGain = null;
+      let audioEnabled = false;
+
+      function initRoomAudio() {
+        if (audioCtx) return;
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+        masterGain = audioCtx.createGain();
+        masterGain.gain.value = 0.0;
+        masterGain.connect(audioCtx.destination);
+
+        // Harmonic minimalist white-room drones
+        const freqs = [73.42, 110.0, 146.83, 220.0];
+        const gains = [0.12, 0.08, 0.045, 0.025];
+        freqs.forEach((f, idx) => {
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+          osc.frequency.value = f;
+
+          const filter = audioCtx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = 320;
+
+          g.gain.value = gains[idx];
+          osc.connect(filter);
+          filter.connect(g);
+          g.connect(masterGain);
+          osc.start();
+        });
+      }
+
+      function updateAudioGain(fadeOpacity) {
+        if (!audioCtx || !masterGain) return;
+        const target = (audioEnabled && isPlaying && currentTime < TOTAL_DURATION)
+          ? Math.max(0, (1.0 - fadeOpacity) * 0.35)
+          : 0.0;
+        masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.08);
+      }
+
+      btnAudioToggle.addEventListener('click', () => {
+        initRoomAudio();
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        audioEnabled = !audioEnabled;
+        btnAudioToggle.textContent = audioEnabled ? '🔊 Room Audio: On' : '🔇 Room Audio: Off';
+        btnAudioToggle.classList.toggle('active', audioEnabled);
+      });
+
+      // Format seconds as M:SS.d
+      function formatTimecode(sec) {
+        const clamped = Math.max(0, Math.min(TOTAL_DURATION, sec));
+        const mins = Math.floor(clamped / 60);
+        const rem = clamped - mins * 60;
+        const secsInt = Math.floor(rem);
+        const tenths = Math.floor((rem - secsInt) * 10);
+        return `${mins}:${secsInt < 10 ? '0' : ''}${secsInt}.${tenths}`;
+      }
+
+      function smoothstep(edge0, edge1, x) {
+        const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+        return t * t * (3 - 2 * t);
+      }
+
+      // Mode switching
+      document.querySelectorAll('.mode-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          renderMode = btn.dataset.mode;
+
+          if (renderMode === 'mp4') {
+            canvas.style.display = 'none';
+            mp4Player.style.display = 'block';
+            fadeOverlay.style.opacity = '0'; // MP4 already has the fade baked in
+            mp4Player.currentTime = currentTime;
+            mp4Player.playbackRate = Math.min(4, playbackSpeed);
+            if (isPlaying) mp4Player.play().catch(() => {});
+            else mp4Player.pause();
+          } else {
+            mp4Player.pause();
+            mp4Player.style.display = 'none';
+            canvas.style.display = 'block';
+          }
+        });
+      });
+
+      // Transport Controls
+      function setPlaying(playState) {
+        isPlaying = playState;
+        btnPlayPause.textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+        btnPlayPause.classList.toggle('active', isPlaying);
+        if (renderMode === 'mp4') {
+          if (isPlaying) mp4Player.play().catch(() => {});
+          else mp4Player.pause();
+        }
+      }
+
+      btnPlayPause.addEventListener('click', () => {
+        if (currentTime >= TOTAL_DURATION) {
+          currentTime = 0;
+          if (renderMode === 'mp4') mp4Player.currentTime = 0;
+        }
+        setPlaying(!isPlaying);
+      });
+
+      btnRestart.addEventListener('click', () => {
+        currentTime = 0;
+        if (renderMode === 'mp4') mp4Player.currentTime = 0;
+        setPlaying(true);
+      });
+
+      btnJumpFade.addEventListener('click', () => {
+        currentTime = 170.0; // 2:50 -> 5s before fade starts at 2:55
+        if (renderMode === 'mp4') mp4Player.currentTime = 170.0;
+        setPlaying(true);
+      });
+
+      timelineSlider.addEventListener('input', () => {
+        isScrubbing = true;
+        currentTime = parseFloat(timelineSlider.value);
+        if (renderMode === 'mp4') {
+          mp4Player.currentTime = currentTime;
+        }
+      });
+
+      timelineSlider.addEventListener('change', () => {
+        isScrubbing = false;
+      });
+
+      document.querySelectorAll('.speed-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.speed-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          playbackSpeed = parseFloat(btn.dataset.speed);
+          if (renderMode === 'mp4') {
+            mp4Player.playbackRate = Math.min(4, playbackSpeed);
+          }
+        });
+      });
+
+      // Cinema HUD hide/show
+      function toggleHud() {
+        document.body.classList.toggle('hud-hidden');
+      }
+      btnHideHud.addEventListener('click', toggleHud);
+      hudRestoreHint.addEventListener('click', toggleHud);
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'h' || e.key === 'H') toggleHud();
+        if (e.key === ' ' && !document.getElementById('drawer-modal').classList.contains('open')) {
+          e.preventDefault();
+          btnPlayPause.click();
+        }
+      });
+
+      // Modal Drawer & Luau Script Loader
+      const drawerModal = document.getElementById('drawer-modal');
+      const luauCodeBlock = document.getElementById('luau-code-block');
+      const btnCopyLuau = document.getElementById('btn-copy-luau');
+
+      fetch('white-room-cutscene.luau')
+        .then((r) => r.text())
+        .then((txt) => { luauCodeBlock.textContent = txt; })
+        .catch(() => {});
+
+      document.getElementById('btn-open-drawer').addEventListener('click', () => {
+        drawerModal.classList.add('open');
+      });
+      document.getElementById('btn-close-drawer').addEventListener('click', () => {
+        drawerModal.classList.remove('open');
+      });
+      btnCopyLuau.addEventListener('click', () => {
+        navigator.clipboard.writeText(luauCodeBlock.textContent).then(() => {
+          btnCopyLuau.textContent = '✓ Copied to Clipboard!';
+          setTimeout(() => { btnCopyLuau.textContent = 'Copy Luau Script'; }, 2000);
+        });
+      });
+
+      // =========================================================================
+      // ENGINE 1: Studio HD Cutscene Renderer (Subpixel 60fps Zoom + Live Shimmer)
+      // =========================================================================
+      function renderStudioCutscene(t, progress) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+
+        if (!wideLoaded && !closeLoaded) {
+          ctx.fillStyle = '#e8e8e6';
+          ctx.fillRect(0, 0, cw, ch);
+          return;
+        }
+
+        // Exponential scale interpolation for constant perceived zoom speed from 0:00 to 3:12
+        const s0 = 1.0;
+        const s1 = 0.215; // 4.65x optical zoom
+        const s = s0 * Math.pow(s1 / s0, progress);
+
+        const img = wideLoaded ? wideRoomImg : closeRoomImg;
+        const W = img.width;
+        const H = img.height;
+
+        // Subtle organic breathing motion on character focus point
+        const breathY = Math.sin(t * 1.75) * 0.85 * s;
+
+        // Focal coordinates in wide master (2752 x 1536) vs standard (1376 x 768)
+        const baseCx = W * 0.5;
+        const startCy = wideLoaded ? 760.0 : 380.0;
+        const endCy = wideLoaded ? 702.0 : 322.0;
+        const fx = baseCx;
+        const fy = startCy * (1.0 - progress) + endCy * progress + breathY;
+
+        const effectiveS = wideLoaded ? s : Math.min(1.0, s * 2.0);
+        const hw = (W * 0.5) * effectiveS;
+        const hh = (H * 0.5) * effectiveS;
+
+        const sx = fx - hw;
+        const sy = fy - hh;
+        const sw = hw * 2.0;
+        const sh = hh * 2.0;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+
+        // Subtle live cyan book-glow & shoulder glitch-lightning aura localized on nish12345678910111
+        const toScreenX = (px) => ((px - sx) / sw) * cw;
+        const toScreenY = (py) => ((py - sy) / sh) * ch;
+        const scaleScreen = cw / sw;
+
+        const bookX = toScreenX(wideLoaded ? 1408 : 720);
+        const bookY = toScreenY(wideLoaded ? 612 : 228);
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+
+        const glowGrad = ctx.createRadialGradient(
+          bookX, bookY, 2 * scaleScreen,
+          bookX, bookY, 75 * scaleScreen
+        );
+        glowGrad.addColorStop(0, `rgba(56, 235, 255, ${0.11 * pulse})`);
+        glowGrad.addColorStop(1, 'rgba(56, 235, 255, 0)');
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(bookX, bookY, 75 * scaleScreen, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // =========================================================================
+      // ENGINE 2: Real-Time 3D Perspective White-Room & R15 Rig Renderer
+      // =========================================================================
+      function render3DRigScene(t, progress) {
+        const cw = canvas.width;
+        const ch = canvas.height;
+
+        // 1. Camera Setup: Slowly dollying & zooming toward the 90-degree corner (0, 0, 0)
+        // while keeping focus locked on nish12345678910111
+        const zoomAlpha = 1.0 - Math.pow(1.0 - progress, 1.15);
+        const camDist = 18.5 * (1.0 - zoomAlpha) + 3.65 * zoomAlpha;
+        const fovDeg = 58.0 * (1.0 - zoomAlpha) + 24.0 * zoomAlpha;
+        const focalLen = (ch * 0.5) / Math.tan((fovDeg * Math.PI) / 360.0);
+
+        const breath = Math.sin(t * 1.75) * 0.025;
+        const yaw = Math.PI * 0.25 + mouseYaw * (1.0 - 0.65 * zoomAlpha);
+        const pitch = 0.08 + mousePitch * (1.0 - 0.65 * zoomAlpha);
+
+        const targetPos = {
+          x: 1.45,
+          y: 1.55 * (1.0 - zoomAlpha) + 2.35 * zoomAlpha + breath,
+          z: 1.45
+        };
+
+        const camPos = {
+          x: targetPos.x + Math.cos(yaw) * Math.cos(pitch) * camDist,
+          y: targetPos.y + Math.sin(pitch) * camDist + 0.35 * (1.0 - zoomAlpha),
+          z: targetPos.z + Math.sin(yaw) * Math.cos(pitch) * camDist
+        };
+
+        // Camera basis vectors (forward, right, up)
+        let fx = targetPos.x - camPos.x;
+        let fy = targetPos.y - camPos.y;
+        let fz = targetPos.z - camPos.z;
+        const fl = Math.hypot(fx, fy, fz) || 1;
+        fx /= fl; fy /= fl; fz /= fl;
+
+        // Right = normalize(cross(forward, worldUp(0,1,0)))
+        let rx = -fz;
+        let ry = 0;
+        let rz = fx;
+        const rl = Math.hypot(rx, ry, rz) || 1;
+        rx /= rl; rz /= rl;
+
+        // Up = cross(right, forward)
+        const ux = ry * fz - rz * fy;
+        const uy = rz * fx - rx * fz;
+        const uz = rx * fy - ry * fx;
+
+        function project3D(wx, wy, wz) {
+          const dx = wx - camPos.x;
+          const dy = wy - camPos.y;
+          const dz = wz - camPos.z;
+          const cz = dx * fx + dy * fy + dz * fz;
+          if (cz <= 0.1) return null;
+          const cx = dx * rx + dy * ry + dz * rz;
+          const cy = dx * ux + dy * uy + dz * uz;
+          return {
+            x: cw * 0.5 + (cx / cz) * focalLen,
+            y: ch * 0.5 - (cy / cz) * focalLen,
+            z: cz,
+            scale: focalLen / cz
+          };
+        }
+
+        // Fill completely white room background with soft global illumination gradient
+        const bgGrad = ctx.createRadialGradient(cw * 0.5, ch * 0.5, 50, cw * 0.5, ch * 0.5, cw * 0.75);
+        bgGrad.addColorStop(0, '#f4f4f2');
+        bgGrad.addColorStop(1, '#deded9');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Draw the 3D White Room Corner Planes & Soft Ambient Occlusion Seams
+        const pOrigin = project3D(0, 0, 0);
+        const pTop = project3D(0, 28, 0);
+        const pLeftWall = project3D(0, 0, 32);
+        const pRightWall = project3D(32, 0, 0);
+        const pFloorFar = project3D(32, 0, 32);
+
+        if (pOrigin && pTop && pLeftWall && pRightWall && pFloorFar) {
+          // Left White Wall
+          const leftGrad = ctx.createLinearGradient(pOrigin.x, pOrigin.y, pLeftWall.x, pLeftWall.y);
+          leftGrad.addColorStop(0, '#e2e2df');
+          leftGrad.addColorStop(0.35, '#efefef');
+          leftGrad.addColorStop(1, '#f8f8f6');
+          ctx.fillStyle = leftGrad;
+          ctx.beginPath();
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pLeftWall.x, pLeftWall.y);
+          ctx.lineTo(pLeftWall.x, -ch);
+          ctx.lineTo(pTop.x, pTop.y);
+          ctx.closePath();
+          ctx.fill();
+
+          // Right White Wall
+          const rightGrad = ctx.createLinearGradient(pOrigin.x, pOrigin.y, pRightWall.x, pRightWall.y);
+          rightGrad.addColorStop(0, '#dcdcd8');
+          rightGrad.addColorStop(0.35, '#ebebea');
+          rightGrad.addColorStop(1, '#f5f5f3');
+          ctx.fillStyle = rightGrad;
+          ctx.beginPath();
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pRightWall.x, pRightWall.y);
+          ctx.lineTo(pRightWall.x, -ch);
+          ctx.lineTo(pTop.x, pTop.y);
+          ctx.closePath();
+          ctx.fill();
+
+          // White Floor Plane
+          const floorGrad = ctx.createLinearGradient(pOrigin.x, pOrigin.y, pOrigin.x, ch * 1.2);
+          floorGrad.addColorStop(0, '#d8d8d4');
+          floorGrad.addColorStop(0.25, '#ecece9');
+          floorGrad.addColorStop(1, '#f7f7f5');
+          ctx.fillStyle = floorGrad;
+          ctx.beginPath();
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pLeftWall.x, pLeftWall.y);
+          ctx.lineTo(cw * 2, ch * 2);
+          ctx.lineTo(-cw, ch * 2);
+          ctx.lineTo(pRightWall.x, pRightWall.y);
+          ctx.closePath();
+          ctx.fill();
+
+          // Soft Ambient Occlusion along the 3 corner intersection seams
+          ctx.strokeStyle = 'rgba(160, 160, 155, 0.45)';
+          ctx.lineWidth = Math.max(1.5, 3.0 * pOrigin.scale * 0.01);
+          ctx.beginPath();
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pTop.x, pTop.y);
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pLeftWall.x, pLeftWall.y);
+          ctx.moveTo(pOrigin.x, pOrigin.y);
+          ctx.lineTo(pRightWall.x, pRightWall.y);
+          ctx.stroke();
+        }
+
+        // Draw 3D Projected Character Anchor + High-Res Character Sprite in 3D Corner Space
+        const charAnchor = project3D(1.45, 1.72 + breath, 1.45);
+        if (charAnchor && closeLoaded) {
+          // Draw 3D perspective floor shadow beneath nish12345678910111
+          const shadowCenter = project3D(1.5, 0.02, 1.5);
+          if (shadowCenter) {
+            const sr = 1.65 * shadowCenter.scale;
+            const shGrad = ctx.createRadialGradient(
+              shadowCenter.x, shadowCenter.y, sr * 0.1,
+              shadowCenter.x, shadowCenter.y, sr
+            );
+            shGrad.addColorStop(0, 'rgba(0, 0, 0, 0.24)');
+            shGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = shGrad;
+            ctx.beginPath();
+            ctx.ellipse(shadowCenter.x, shadowCenter.y, sr, sr * 0.42, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Render RIA 2025 Interstellar Aura particles orbiting in 3D space behind & around character
+          for (let i = 0; i < 18; i++) {
+            const ang = t * 0.55 + (i * Math.PI * 2) / 18;
+            const rad = 1.15 + 0.25 * Math.sin(t * 0.9 + i);
+            const py = 1.1 + ((i % 5) * 0.42) + Math.cos(t * 1.1 + i) * 0.12;
+            const px = 1.45 + Math.cos(ang) * rad;
+            const pz = 1.45 + Math.sin(ang) * rad;
+            const pp = project3D(px, py, pz);
+            if (pp) {
+              const pr = Math.max(1.5, 0.032 * pp.scale);
+              ctx.fillStyle = i % 2 === 0 ? 'rgba(56, 189, 248, 0.55)' : 'rgba(180, 195, 215, 0.5)';
+              ctx.beginPath();
+              ctx.arc(pp.x, pp.y, pr, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+
+          // Project character billboard with 3D perspective scale
+          const charHeightWorld = 3.85;
+          const drawH = charHeightWorld * charAnchor.scale;
+          const drawW = drawH * (closeRoomImg.width / closeRoomImg.height);
+          const dx = charAnchor.x - drawW * 0.5;
+          const dy = charAnchor.y - drawH * 0.52;
+
+          ctx.save();
+          // Feather character crop smoothly into the 3D white room corner
+          const clipR = drawH * 0.48;
+          const maskGrad = ctx.createRadialGradient(
+            charAnchor.x, charAnchor.y, clipR * 0.55,
+            charAnchor.x, charAnchor.y, clipR * 1.15
+          );
+          ctx.drawImage(closeRoomImg, dx, dy, drawW, drawH);
+          ctx.restore();
+        }
+      }
+
+      // =========================================================================
+      // Main Animation Loop (0:00.0 -> 3:12.0 + Gradual Fade to Black)
+      // =========================================================================
+      function tick(now) {
+        const dt = Math.min(0.1, (now - lastFrameTs) / 1000.0);
+        lastFrameTs = now;
+
+        if (renderMode === 'mp4') {
+          if (!isScrubbing && !mp4Player.paused) {
+            currentTime = mp4Player.currentTime;
+          }
+          if (currentTime >= TOTAL_DURATION - 0.05) {
+            currentTime = TOTAL_DURATION;
+            setPlaying(false);
+          }
+        } else if (isPlaying && !isScrubbing) {
+          currentTime += dt * playbackSpeed;
+          if (currentTime >= TOTAL_DURATION) {
+            currentTime = TOTAL_DURATION;
+            setPlaying(false);
+          }
+        }
+
+        const progress = Math.max(0.0, Math.min(1.0, currentTime / TOTAL_DURATION));
+
+        // Calculate gradual fade-to-black opacity at the end (2:55 to 3:12)
+        let fadeOpacity = 0.0;
+        if (currentTime >= FADE_START) {
+          fadeOpacity = smoothstep(FADE_START, FADE_END, currentTime);
+        }
+
+        if (renderMode !== 'mp4') {
+          fadeOverlay.style.opacity = fadeOpacity.toFixed(4);
+          if (renderMode === 'studio') {
+            renderStudioCutscene(currentTime, progress);
+          } else {
+            render3DRigScene(currentTime, progress);
+          }
+        }
+
+        updateAudioGain(fadeOpacity);
+
+        // Update UI Telemetry
+        timeCurrentEl.textContent = formatTimecode(currentTime);
+        if (!isScrubbing) {
+          timelineSlider.value = currentTime.toFixed(2);
+        }
+
+        const opticalZoom = Math.pow(1.0 / 0.215, progress);
+        const focalMm = 24.0 * opticalZoom;
+        const distStuds = 22.0 * (1.0 - progress) + 3.8 * progress;
+
+        zoomReadout.textContent = `${opticalZoom.toFixed(2)}×`;
+        focalReadout.textContent = `${focalMm.toFixed(1)} mm`;
+        distReadout.textContent = `${distStuds.toFixed(1)} studs`;
+        fadeReadout.textContent = `${Math.round(fadeOpacity * 100)}%`;
+
+        if (currentTime >= TOTAL_DURATION - 0.1) {
+          phaseBadge.textContent = 'COMPLETE — SCREEN FADED TO BLACK (3:12)';
+          phaseBadge.style.color = '#f43f5e';
+        } else if (currentTime >= FADE_START) {
+          phaseBadge.textContent = `FADING TO BLACK (${Math.round(fadeOpacity * 100)}%)`;
+          phaseBadge.style.color = '#fbbf24';
+        } else {
+          phaseBadge.textContent = 'SLOW ZOOM IN ON CHARACTER (0:00 → 3:12)';
+          phaseBadge.style.color = '#38bdf8';
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>
