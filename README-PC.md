@@ -7,11 +7,33 @@ scrolling that never snaps you away from old output, access from other devices
 on the same Wi-Fi/LAN, and quiet background auto-updates from this repo's
 `main` branch. **No password — only use it on a trusted network.**
 
-Each platform installs with **one command**. Nothing else to download.
+---
+
+## ⭐ THE one command — same everywhere
+
+Copy this **exact same command** into **any** of these and press Enter — it
+detects your system by itself:
+
+- 🐧 Ubuntu / Linux terminal
+- 🪟 Windows **PowerShell**
+- 🪟 Windows **CMD** (Command Prompt)
+- 📱 Termux (installs the phone edition instead)
+
+```text
+python3 -c "import sys,os,tempfile as t,urllib.request as u,subprocess as s;p=os.path.join(t.gettempdir(),'cm.py');u.urlretrieve('https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/cm.py',p);s.run([sys.executable,p],check=True)"
+```
+
+That's it — the same paste works on every command bar. On Windows, if
+`python3` opens the Microsoft Store, just install Python from there once
+(or from python.org, ticking **“Add python.exe to PATH”**), then paste the
+same command again. Re-running the command later also updates you.
+
+Prefer a shell-native installer instead? The per-platform commands below do
+the same install — the universal command above is the recommended one.
 
 ---
 
-## 🐧 Ubuntu / Linux — Terminal
+## 🐧 Ubuntu / Linux — Terminal (alternative)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-linux.sh | bash
@@ -23,13 +45,13 @@ No `curl`? The same job with Python (preinstalled on Ubuntu):
 python3 -c 'import urllib.request as u,subprocess as s;u.urlretrieve("https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-linux.sh","cm-pc.sh");s.run(["bash","cm-pc.sh"],check=True)'
 ```
 
-## 🪟 Windows — PowerShell
+## 🪟 Windows — PowerShell (alternative)
 
 ```powershell
 irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-windows.ps1 -UseBasicParsing | iex
 ```
 
-## 🪟 Windows — Command Prompt (CMD)
+## 🪟 Windows — Command Prompt (CMD) (alternative)
 
 ```cmd
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-windows.ps1 -UseBasicParsing | iex"
@@ -89,6 +111,7 @@ then delete the app folder — Linux: `~/.local/share/console-manager`
 
 | File | What it is |
 | --- | --- |
+| `cm.py` | Universal bootstrapper the ONE command downloads — detects Termux / Windows / Linux |
 | `console-manager-pc.py` | The whole PC app — one Python file, standard library only |
 | `install-linux.sh` | One-command installer for Ubuntu/Linux |
 | `install-windows.ps1` | One-command installer for Windows (PowerShell + CMD) |
