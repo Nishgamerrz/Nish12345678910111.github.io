@@ -23,6 +23,9 @@ detects your system by itself:
 python3 -c "import sys,os,tempfile as t,urllib.request as u,subprocess as s;p=os.path.join(t.gettempdir(),'cm.py');u.urlretrieve('https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/cm.py',p);s.run([sys.executable,p],check=True)"
 ```
 
+Setup is quiet: no download logs, just a small rotating
+`| / - \` bar saying **“Setting up everything…”**, then your URLs.
+
 That's it — the same paste works on every command bar. On Windows, if
 `python3` opens the Microsoft Store, just install Python from there once
 (or from python.org, ticking **“Add python.exe to PATH”**), then paste the
@@ -88,6 +91,17 @@ ac update-status  Auto-update state + last check
 Create, rename-free manage, clear and delete consoles from the web dashboard.
 Every console is one persistent shell, so `cd`, environment variables and
 jobs survive between commands — on Windows and Linux alike.
+
+## 😂 Bonus: prank screen
+
+```text
+ac prank
+```
+
+Shows the “Setting up everything…” spinner for 20 seconds, then a fake
+Hollywood-style `HACKING DEVICE...` sequence — and ends with a big
+**“PRANK! Nothing was hacked”** reveal. It's pure terminal theatre: it only
+prints text, never touches files, the network, or any real command.
 
 ## Auto-updates
 

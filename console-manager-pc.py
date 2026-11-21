@@ -17,6 +17,8 @@ Installed and driven by the small `ac` launcher:
     ac create N   Create a console      ac delete N   Delete a console
     ac update     Check GitHub main and update now
     ac update-on / update-off / update-status
+    ac prank      Optional joke screen: 20s setup spinner, fake movie-hacker
+                  code, then a big PRANK reveal. It touches nothing.
 """
 
 import hashlib
@@ -730,6 +732,69 @@ def cmd_start():
     return 0
 
 
+PRANK_HACK_LINES = [
+    "[*] Resolving target device ............ OK",
+    "[*] Handshake accepted on port 31337 .... OK",
+    "[*] Bypassing firewall [##########] 100%",
+    "[*] Injecting payload 0xDEADBEEF ........ OK",
+    "[*] Escalating privileges -> ROOT (simulated)",
+    "[*] Dumping kernel memory map .......... OK",
+    "[*] Spoofing MAC address ............... OK",
+    "[*] Tracing packets: 10.13.37.1 -> 172.16.66.6 -> [REDACTED]",
+    "[*] Decrypting secure enclave .......... 98%",
+    "[*] Installing backdoor module ......... OK",
+    "[*] Exfiltrating 4.2 TB of totally-real data ...",
+    "[*] Wiping access logs ................. OK",
+    "[*] ACCESS GRANTED",
+]
+
+
+def cmd_prank():
+    """A clearly-finished-as-a-joke fake 'hacking' animation.
+
+    Pure terminal theatre: it prints text and sleeps. It never reads files,
+    never touches the network, and never runs a single system command — and
+    it ends by telling the 'victim' it was a prank.
+    """
+    try:
+        setup_seconds = float(os.environ.get("CM_PRANK_SETUP_SECONDS", "20"))
+    except ValueError:
+        setup_seconds = 20
+    setup_seconds = min(60.0, max(0.0, setup_seconds))
+    tty = sys.stdout.isatty()
+    frames = "|/-\\"
+    try:
+        deadline = time.time() + setup_seconds
+        index = 0
+        while time.time() < deadline:
+            if tty:
+                sys.stdout.write("\r%s Setting up everything..." % frames[index % len(frames)])
+                sys.stdout.flush()
+            index += 1
+            time.sleep(0.12)
+        if tty:
+            sys.stdout.write("\r" + " " * 30 + "\r")
+        red = "\033[1;31m" if tty else ""
+        green = "\033[1;32m" if tty else ""
+        reset = "\033[0m" if tty else ""
+        print("%sHACKING DEVICE...%s" % (red, reset))
+        time.sleep(0.6)
+        for line in PRANK_HACK_LINES:
+            print("%s%s%s" % (green, line, reset))
+            time.sleep(0.35)
+        time.sleep(0.8)
+        print()
+        print("=" * 58)
+        print("  PRANK! Nothing was hacked. 😂")
+        print("  This was just Console Manager's fake joke screen —")
+        print("  no files, accounts or devices were touched. Gotcha!")
+        print("=" * 58)
+        return 0
+    except KeyboardInterrupt:
+        print("\nPrank cancelled — nothing was hacked, it was only a joke screen.")
+        return 130
+
+
 def cmd_stop():
     pid = server_pid()
     if not pid:
@@ -804,7 +869,7 @@ def quiet_update_check():
 
 
 def schedule_background_update(argv):
-    if argv and argv[0] in ("_serve", "_update-check", "update", "update-on", "update-off", "update-status"):
+    if argv and argv[0] in ("_serve", "_update-check", "update", "update-on", "update-off", "update-status", "prank"):
         return
     if UPDATE_DISABLED.exists() or os.environ.get("AC_DISABLE_AUTO_UPDATE") == "1":
         return
@@ -890,6 +955,8 @@ def main(argv):
                 print("Last check: not yet")
             print("Update log: %s" % UPDATE_LOG)
             return 0
+        if command == "prank":
+            return cmd_prank()
         if command == "theme":
             if args:
                 save_theme(args[0])

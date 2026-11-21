@@ -14,8 +14,8 @@ echo "Console Manager (PC edition) — installing for $(whoami)…"
 if ! command -v python3 >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
         echo "Python 3 not found — installing it with apt…"
-        sudo apt-get update
-        sudo apt-get install -y python3
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq python3
     else
         echo "ERROR: Python 3 is required. Install python3 and run this again." >&2
         exit 1
