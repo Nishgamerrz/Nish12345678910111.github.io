@@ -60,6 +60,23 @@ irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/m
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-windows.ps1 -UseBasicParsing | iex"
 ```
 
+Or with curl (built into Windows 10/11). **The `%TEMP%` part matters** — never
+save the download into `C:\Windows\System32`, Windows blocks writes there and
+curl fails with `(23) client returned ERROR on write`:
+
+```cmd
+curl -fsSL https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/cm.py -o "%TEMP%\cm.py" && py "%TEMP%\cm.py"
+```
+
+(If `py` is not found, use `python` instead — or just use the PowerShell
+command above, which installs Python for you.)
+
+> **Seeing `curl: (23) client returned ERROR on write of NNN bytes`?**
+> Your CMD opened in `C:\Windows\System32` and `curl -o <file>` can't write
+> there. Either first run `cd /d %USERPROFILE%`, or save to `"%TEMP%\..."`
+> like the command above. The download itself is fine — it's the save
+> location Windows is protecting.
+
 The Windows installer finds Python 3 for you — if it's missing and `winget`
 is available, it installs Python automatically. No admin rights needed.
 After installing, open a **new** terminal window so `ac` is on your PATH.
