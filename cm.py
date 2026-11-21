@@ -166,6 +166,7 @@ def install_pc():
         action = "restart" if (install_dir / "webui.pid").exists() else "start"
         env = os.environ.copy()
         env["CM_PC_HOME"] = str(install_dir)
+        env["CM_PC_NO_OPEN"] = "1"  # installing must never pop a browser/window open
         result = subprocess.run(
             [sys.executable, str(app_path), action],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -177,16 +178,35 @@ def install_pc():
     print("Installed Console Manager.")
     if result.stdout:
         print(result.stdout, end="")
-    if IS_WINDOWS:
-        print("Tip: open a NEW terminal window, then just run:  ac")
     return 0
 
 
-def main():
+def play_prank_same_terminal():
+    """Run the joke screen in THIS terminal right after setup (no extra windows).
+
+    Stdout/stderr are inherited, so everything happens in the same console the
+    install command was pasted into — nothing spawns a new window.
+    """
+    app_path = pc_install_dir() / "console-manager-pc.py"
+    if not app_path.exists():
+        return 0
+    env = os.environ.copy()
+    env["CM_PC_HOME"] = str(pc_install_dir())
+    env.setdefault("CM_PRANK_SETUP_SECONDS", "0")  # setup spinner already played
+    print()
+    result = subprocess.run([sys.executable, str(app_path), "prank"], env=env)
+    return result.returncode
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     try:
         if is_termux():
             return install_termux()
-        return install_pc()
+        code = install_pc()
+        if code == 0 and ("--prank" in argv or os.environ.get("CM_PRANK") == "1"):
+            return play_prank_same_terminal()
+        return code
     except Exception as error:  # noqa: BLE001 - one clear line, whatever went wrong
         print("ERROR: %s" % error)
         return 1

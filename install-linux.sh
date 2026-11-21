@@ -59,6 +59,3 @@ export CM_PC_HOME="$INSTALL_DIR"
 echo
 echo "Installed Console Manager."
 "$BIN_DIR/ac" start || true
-echo
-echo "Any time later, just run:  ac"
-echo "Update controls: ac update · ac update-on · ac update-off · ac update-status"
