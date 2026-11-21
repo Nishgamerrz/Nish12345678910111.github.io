@@ -23,9 +23,6 @@ detects your system by itself:
 python3 -c "import sys,os,tempfile as t,urllib.request as u,subprocess as s;p=os.path.join(t.gettempdir(),'cm.py');u.urlretrieve('https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/cm.py',p);s.run([sys.executable,p],check=True)"
 ```
 
-Setup is quiet: no download logs, just a small rotating
-`| / - \` bar saying **“Setting up everything…”**, then your URLs.
-
 That's it — the same paste works on every command bar. On Windows, if
 `python3` opens the Microsoft Store, just install Python from there once
 (or from python.org, ticking **“Add python.exe to PATH”**), then paste the
@@ -60,23 +57,6 @@ irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/m
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/install-windows.ps1 -UseBasicParsing | iex"
 ```
 
-Or with curl (built into Windows 10/11). **The `%TEMP%` part matters** — never
-save the download into `C:\Windows\System32`, Windows blocks writes there and
-curl fails with `(23) client returned ERROR on write`:
-
-```cmd
-curl -fsSL https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.github.io/main/cm.py -o "%TEMP%\cm.py" && py "%TEMP%\cm.py"
-```
-
-(If `py` is not found, use `python` instead — or just use the PowerShell
-command above, which installs Python for you.)
-
-> **Seeing `curl: (23) client returned ERROR on write of NNN bytes`?**
-> Your CMD opened in `C:\Windows\System32` and `curl -o <file>` can't write
-> there. Either first run `cd /d %USERPROFILE%`, or save to `"%TEMP%\..."`
-> like the command above. The download itself is fine — it's the save
-> location Windows is protecting.
-
 The Windows installer finds Python 3 for you — if it's missing and `winget`
 is available, it installs Python automatically. No admin rights needed.
 After installing, open a **new** terminal window so `ac` is on your PATH.
@@ -108,17 +88,6 @@ ac update-status  Auto-update state + last check
 Create, rename-free manage, clear and delete consoles from the web dashboard.
 Every console is one persistent shell, so `cd`, environment variables and
 jobs survive between commands — on Windows and Linux alike.
-
-## 😂 Bonus: prank screen
-
-```text
-ac prank
-```
-
-Shows the “Setting up everything…” spinner for 20 seconds, then a fake
-Hollywood-style `HACKING DEVICE...` sequence — and ends with a big
-**“PRANK! Nothing was hacked”** reveal. It's pure terminal theatre: it only
-prints text, never touches files, the network, or any real command.
 
 ## Auto-updates
 

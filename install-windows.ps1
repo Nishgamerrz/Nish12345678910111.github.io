@@ -33,10 +33,8 @@ $Python = Find-Python
 if (-not $Python) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if ($winget) {
-        Write-Host 'Setting up everything (installing Python)...' -ForegroundColor Yellow
-        $wingetLog = Join-Path $env:TEMP 'console-manager-winget.log'
-        winget install -e --id Python.Python.3.12 --scope user --accept-source-agreements --accept-package-agreements *> $wingetLog
-        if ($LASTEXITCODE -ne 0) { Get-Content $wingetLog; throw "winget failed to install Python (log: $wingetLog)" }
+        Write-Host 'Python 3 not found - installing it with winget...' -ForegroundColor Yellow
+        winget install -e --id Python.Python.3.12 --scope user --accept-source-agreements --accept-package-agreements
         $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
         $Python = Find-Python
     }
@@ -83,3 +81,7 @@ if (($env:Path -split ';') -notcontains $InstallDir) { $env:Path = "$env:Path;$I
 Write-Host ''
 Write-Host 'Installed Console Manager.' -ForegroundColor Green
 & (Join-Path $InstallDir 'ac.cmd') start
+Write-Host ''
+Write-Host 'Any time later, just run:  ac' -ForegroundColor Cyan
+Write-Host 'Update controls: ac update | ac update-on | ac update-off | ac update-status'
+Write-Host 'Note: open a NEW terminal window so the updated PATH is picked up everywhere.'
