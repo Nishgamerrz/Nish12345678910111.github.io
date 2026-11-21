@@ -711,11 +711,18 @@ def cmd_start():
     else:
         log = open(LOG_FILE, "a", encoding="utf-8")
         kwargs = dict(stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True)
+        server_python = sys.executable
         if IS_WINDOWS:
-            kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+            # Run the background server windowlessly: pythonw.exe when it is
+            # available, CREATE_NO_WINDOW otherwise. Starting the Web UI must
+            # never pop a random console window open.
+            pythonw = Path(sys.executable).with_name("pythonw.exe")
+            if pythonw.exists():
+                server_python = str(pythonw)
+            kwargs["creationflags"] = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         else:
             kwargs["start_new_session"] = True
-        subprocess.Popen([sys.executable, str(APP_PATH), "_serve"], **kwargs)
+        subprocess.Popen([server_python, str(APP_PATH), "_serve"], **kwargs)
         for _ in range(50):
             if server_pid():
                 break
@@ -881,7 +888,7 @@ def schedule_background_update(argv):
         return
     kwargs = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     if IS_WINDOWS:
-        kwargs["creationflags"] = 0x00000008 | 0x00000200
+        kwargs["creationflags"] = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     try:
@@ -933,7 +940,7 @@ def main(argv):
                 print("  %s" % name)
             return 0
         if command in ("create", "delete", "clear", "exec"):
-            print("Run that from the Web UI, or start it first with: ac")
+            print("Run that from the Web UI.")
             return 1
         if command == "update":
             do_update(force=True)

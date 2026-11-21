@@ -83,7 +83,3 @@ if (($env:Path -split ';') -notcontains $InstallDir) { $env:Path = "$env:Path;$I
 Write-Host ''
 Write-Host 'Installed Console Manager.' -ForegroundColor Green
 & (Join-Path $InstallDir 'ac.cmd') start
-Write-Host ''
-Write-Host 'Any time later, just run:  ac' -ForegroundColor Cyan
-Write-Host 'Update controls: ac update | ac update-on | ac update-off | ac update-status'
-Write-Host 'Note: open a NEW terminal window so the updated PATH is picked up everywhere.'
