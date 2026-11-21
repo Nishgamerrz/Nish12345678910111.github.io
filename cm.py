@@ -14,10 +14,9 @@ Python 3 standard library only, on every platform.
 """
 
 import os
+import shutil
 import subprocess
 import sys
-import threading
-import time
 import urllib.request
 from pathlib import Path
 
@@ -25,47 +24,6 @@ RAW_BASE = "https://raw.githubusercontent.com/Nishgamerrz/Nish12345678910111.git
 PC_URL = os.environ.get("CM_PC_URL", RAW_BASE + "/console-manager-pc.py")
 TERMUX_URL = os.environ.get("CM_TERMUX_URL", RAW_BASE + "/console%20manager.txt")
 IS_WINDOWS = os.name == "nt"
-
-
-class QuietSpinner:
-    """A little rotating-bar animation so setup never dumps download logs."""
-
-    FRAMES = "|/-\\"
-
-    def __init__(self, label):
-        self.label = label
-        self._stop = threading.Event()
-        self._thread = None
-        self._tty = False
-
-    def __enter__(self):
-        try:
-            self._tty = sys.stdout.isatty()
-        except Exception:
-            self._tty = False
-        if self._tty:
-            self._thread = threading.Thread(target=self._spin, daemon=True)
-            self._thread.start()
-        else:
-            print(self.label, flush=True)
-        return self
-
-    def _spin(self):
-        index = 0
-        while not self._stop.is_set():
-            sys.stdout.write("\r%s %s" % (self.FRAMES[index % len(self.FRAMES)], self.label))
-            sys.stdout.flush()
-            index += 1
-            self._stop.wait(0.12)
-
-    def __exit__(self, exc_type, exc, tb):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1)
-        if self._tty:
-            sys.stdout.write("\r" + " " * (len(self.label) + 4) + "\r")
-            sys.stdout.flush()
-        return False
 
 
 def is_termux():
@@ -149,64 +107,35 @@ def write_linux_launcher(install_dir, app_path):
 
 
 def install_pc():
+    platform = "Windows" if IS_WINDOWS else "Linux"
+    print("Console Manager: %s detected — installing the PC edition…" % platform)
     install_dir = pc_install_dir()
     app_path = install_dir / "console-manager-pc.py"
-    with QuietSpinner("Setting up everything..."):
-        data = download(PC_URL, app_path)
-        if b"CONSOLE_MANAGER_PC_VERSION" not in data:
-            raise RuntimeError("downloaded PC app failed validation")
-        if IS_WINDOWS:
-            write_windows_launchers(install_dir, app_path)
-            add_windows_user_path(install_dir)
-        else:
-            write_linux_launcher(install_dir, app_path)
-        # If it is already running, restart so a re-run of this command also
-        # updates; otherwise start it now. Keep the app output captured until
-        # the spinner is done, so no intermediate setup noise reaches the bar.
-        action = "restart" if (install_dir / "webui.pid").exists() else "start"
-        env = os.environ.copy()
-        env["CM_PC_HOME"] = str(install_dir)
-        env["CM_PC_NO_OPEN"] = "1"  # installing must never pop a browser/window open
-        result = subprocess.run(
-            [sys.executable, str(app_path), action],
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-    if result.returncode != 0:
-        if result.stdout:
-            print(result.stdout, end="")
-        return result.returncode
+    data = download(PC_URL, app_path)
+    if b"CONSOLE_MANAGER_PC_VERSION" not in data:
+        raise RuntimeError("downloaded PC app failed validation")
+    if IS_WINDOWS:
+        write_windows_launchers(install_dir, app_path)
+        add_windows_user_path(install_dir)
+    else:
+        write_linux_launcher(install_dir, app_path)
     print("Installed Console Manager.")
-    if result.stdout:
-        print(result.stdout, end="")
-    return 0
-
-
-def play_prank_same_terminal():
-    """Run the joke screen in THIS terminal right after setup (no extra windows).
-
-    Stdout/stderr are inherited, so everything happens in the same console the
-    install command was pasted into — nothing spawns a new window.
-    """
-    app_path = pc_install_dir() / "console-manager-pc.py"
-    if not app_path.exists():
-        return 0
+    # If it is already running, restart so a re-run of this command also updates;
+    # otherwise start it now. Either way the app prints its URLs.
+    action = "restart" if (install_dir / "webui.pid").exists() else "start"
     env = os.environ.copy()
-    env["CM_PC_HOME"] = str(pc_install_dir())
-    env.setdefault("CM_PRANK_SETUP_SECONDS", "0")  # setup spinner already played
-    print()
-    result = subprocess.run([sys.executable, str(app_path), "prank"], env=env)
+    env["CM_PC_HOME"] = str(install_dir)
+    result = subprocess.run([sys.executable, str(app_path), action], env=env)
+    if IS_WINDOWS:
+        print("Tip: open a NEW terminal window, then just run:  ac")
     return result.returncode
 
 
-def main(argv=None):
-    argv = list(sys.argv[1:] if argv is None else argv)
+def main():
     try:
         if is_termux():
             return install_termux()
-        code = install_pc()
-        if code == 0 and ("--prank" in argv or os.environ.get("CM_PRANK") == "1"):
-            return play_prank_same_terminal()
-        return code
+        return install_pc()
     except Exception as error:  # noqa: BLE001 - one clear line, whatever went wrong
         print("ERROR: %s" % error)
         return 1
